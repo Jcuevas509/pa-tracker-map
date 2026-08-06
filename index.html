@@ -6,6 +6,9 @@
   <title>PA Tracker Map</title>
   <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
   <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/10.14.1/firebase-app-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/10.14.1/firebase-database-compat.js"></script>
+
   <style>
     :root {
       --bg: #0f1419;
@@ -278,6 +281,76 @@
         padding: 12px 18px;
       }
     }
+
+    .sync-pill {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      border-radius: 999px;
+      padding: 5px 10px;
+      font-size: 0.75rem;
+      border: 1px solid var(--border);
+      color: var(--muted);
+    }
+    .sync-pill.on { color: var(--signed); border-color: color-mix(in srgb, var(--signed) 45%, var(--border)); }
+    .sync-pill.off { color: #ffb86b; border-color: color-mix(in srgb, #ffb86b 45%, var(--border)); }
+    .status-row {
+      display: flex;
+      gap: 8px;
+      align-items: center;
+      margin-top: 8px;
+      flex-wrap: wrap;
+    }
+    .status-row select {
+      border: 1px solid var(--border);
+      background: var(--bg);
+      color: var(--text);
+      border-radius: 8px;
+      padding: 7px 10px;
+      font-size: 0.82rem;
+    }
+    .tag.status-open { color: #93a1b0; }
+    .tag.status-contacted { color: #3d9cf0; border-color: color-mix(in srgb, #3d9cf0 45%, transparent); }
+    .tag.status-scheduled { color: #f0b429; border-color: color-mix(in srgb, #f0b429 45%, transparent); }
+    .tag.status-visited { color: #a78bfa; border-color: color-mix(in srgb, #a78bfa 45%, transparent); }
+    .tag.status-done { color: #3ecf8e; border-color: color-mix(in srgb, #3ecf8e 45%, transparent); }
+    .tag.status-issue { color: #ef5f67; border-color: color-mix(in srgb, #ef5f67 45%, transparent); }
+    .modal-backdrop {
+      display: none;
+      position: fixed;
+      inset: 0;
+      z-index: 5000;
+      background: rgba(0,0,0,.55);
+      align-items: center;
+      justify-content: center;
+      padding: 16px;
+    }
+    .modal-backdrop.show { display: flex; }
+    .modal {
+      width: min(520px, 100%);
+      background: var(--panel);
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      padding: 16px;
+      max-height: 90vh;
+      overflow: auto;
+    }
+    .modal h2 { margin: 0 0 8px; font-size: 1.05rem; }
+    .modal p, .modal li { color: var(--muted); font-size: 0.85rem; line-height: 1.45; }
+    .modal textarea, .modal input[type="text"] {
+      width: 100%;
+      border: 1px solid var(--border);
+      background: var(--bg);
+      color: var(--text);
+      border-radius: 8px;
+      padding: 9px 11px;
+      font: inherit;
+      font-size: 0.85rem;
+      margin: 6px 0 10px;
+    }
+    .modal textarea { min-height: 120px; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 0.75rem; }
+    .modal .modal-actions { display: flex; gap: 8px; flex-wrap: wrap; justify-content: flex-end; }
+    .updated-by { font-size: 0.7rem; color: var(--muted); margin-top: 4px; }
   </style>
 </head>
 <body>
@@ -286,6 +359,8 @@
     <label class="chip on-signed"><input type="checkbox" id="showSigned" checked /> Signed Jobs</label>
     <label class="chip on-permits"><input type="checkbox" id="showPermits" checked /> Permits</label>
     <div class="spacer"></div>
+    <span class="sync-pill off" id="syncPill" title="Shared sync status">Local only</span>
+    <button class="btn" id="btnShareSetup" type="button">Share setup</button>
     <button class="btn" id="btnMapToggleHeader" type="button" aria-pressed="false">Expand map</button>
     <button class="btn" id="btnLocate" type="button" aria-pressed="false">Follow me</button>
     <button class="btn" id="btnNearest" type="button" disabled>Build nearest path</button>
@@ -301,10 +376,11 @@
         <select id="sortBy" class="btn" aria-label="Sort list" style="margin-left:auto">
           <option value="name">Sort: Name</option>
           <option value="distance">Sort: Time / Distance</option>
+          <option value="status">Sort: Status</option>
           <option value="section">Sort: Section</option>
         </select>
       </div>
-      <div class="meta">Tap a person to add notes (saved on this phone). Expand map for a bigger view.</div>
+      <div class="meta" id="shareTip">Tap a person for status + notes. Set up sharing so the whole team sees the same data.</div>
     </div>
     <div class="list" id="list" role="list"></div>
     <div class="route-bar" id="routeBar">
@@ -315,6 +391,29 @@
       </div>
     </div>
   </aside>
+
+
+  <div class="modal-backdrop" id="shareModal" role="dialog" aria-modal="true" aria-labelledby="shareModalTitle">
+    <div class="modal">
+      <h2 id="shareModalTitle">Share notes &amp; status</h2>
+      <p>GitHub Pages can’t store shared data by itself. A free Firebase Realtime Database keeps notes/status in sync for everyone with the link.</p>
+      <ol>
+        <li>Open <a href="https://console.firebase.google.com/" target="_blank" rel="noopener">Firebase Console</a> → Create project</li>
+        <li>Add a <strong>Web</strong> app → copy the <code>firebaseConfig</code> object</li>
+        <li>Build → <strong>Realtime Database</strong> → Create → start in <strong>test mode</strong> (or allow read/write)</li>
+        <li>Paste the config JSON below (the object with apiKey, databaseURL, …)</li>
+      </ol>
+      <label for="nickInput">Your name (shown on edits)</label>
+      <input id="nickInput" type="text" placeholder="e.g. Jose" maxlength="40" />
+      <label for="firebaseConfigInput">Firebase config</label>
+      <textarea id="firebaseConfigInput" placeholder='{ "apiKey": "...", "authDomain": "...", "databaseURL": "...", "projectId": "..." }'></textarea>
+      <div class="modal-actions">
+        <button class="btn" type="button" id="btnShareClose">Cancel</button>
+        <button class="btn danger" type="button" id="btnShareClear">Clear sync</button>
+        <button class="btn primary" type="button" id="btnShareSave">Save &amp; sync</button>
+      </div>
+    </div>
+  </div>
 
   <div class="map-wrap">
     <div id="map" role="application" aria-label="Map of PA tracker locations"></div>
@@ -364,22 +463,175 @@
     // Status banner removed to save space; keep no-op for call sites / rare debug
     const setStatus = (_msg) => {};
 
-    const NOTES_KEY = "pa-tracker-notes-v1";
-    const loadNotes = () => {
-      try { return JSON.parse(localStorage.getItem(NOTES_KEY) || "{}") || {}; }
-      catch { return {}; }
+    const STATUSES = [
+      { id: "open", label: "Open" },
+      { id: "contacted", label: "Contacted" },
+      { id: "scheduled", label: "Scheduled" },
+      { id: "visited", label: "Visited" },
+      { id: "done", label: "Done" },
+      { id: "issue", label: "Issue" },
+    ];
+    const statusLabel = (id) => STATUSES.find((s) => s.id === id)?.label || "Open";
+
+    const LOCAL_SHARED_KEY = "pa-tracker-shared-v1";
+    const FIREBASE_CFG_KEY = "pa-tracker-firebase-config";
+    const NICK_KEY = "pa-tracker-nickname";
+
+    // personId -> { notes, status, updatedAt, updatedBy }
+    let sharedById = {};
+    try { sharedById = JSON.parse(localStorage.getItem(LOCAL_SHARED_KEY) || "{}") || {}; } catch { sharedById = {}; }
+
+    // migrate old local-only notes once
+    try {
+      const oldNotes = JSON.parse(localStorage.getItem("pa-tracker-notes-v1") || "{}");
+      Object.entries(oldNotes || {}).forEach(([id, notes]) => {
+        if (!sharedById[id]) sharedById[id] = { notes: notes || "", status: "open", updatedAt: Date.now(), updatedBy: "local" };
+        else if (!sharedById[id].notes && notes) sharedById[id].notes = notes;
+      });
+    } catch {}
+
+    let nickname = localStorage.getItem(NICK_KEY) || "";
+    let firebaseApp = null;
+    let dbRef = null;
+    let syncEnabled = false;
+    let applyingRemote = false;
+
+    const persistLocalShared = () => {
+      localStorage.setItem(LOCAL_SHARED_KEY, JSON.stringify(sharedById));
     };
-    const saveNotes = (notes) => {
-      localStorage.setItem(NOTES_KEY, JSON.stringify(notes));
+
+    const getEntry = (id) => {
+      const key = String(id);
+      if (!sharedById[key]) {
+        sharedById[key] = { notes: "", status: "open", updatedAt: null, updatedBy: "" };
+      }
+      return sharedById[key];
     };
-    let notesById = loadNotes();
+
+    const getNote = (id) => (getEntry(id).notes || "").trim();
+    const getPersonStatus = (id) => getEntry(id).status || "open";
+
+    const updateSyncPill = () => {
+      const pill = document.getElementById("syncPill");
+      const tip = document.getElementById("shareTip");
+      if (!pill) return;
+      if (syncEnabled) {
+        pill.textContent = "Live sync";
+        pill.classList.add("on");
+        pill.classList.remove("off");
+        if (tip) tip.textContent = "Status + notes sync live for everyone with this link.";
+      } else {
+        pill.textContent = "Local only";
+        pill.classList.add("off");
+        pill.classList.remove("on");
+        if (tip) tip.textContent = "Tap Share setup so the team can share status + notes.";
+      }
+    };
+
+    const pushEntry = (id) => {
+      const key = String(id);
+      const entry = getEntry(id);
+      persistLocalShared();
+      if (syncEnabled && dbRef && !applyingRemote) {
+        dbRef.child(key).set({
+          notes: entry.notes || "",
+          status: entry.status || "open",
+          updatedAt: entry.updatedAt || Date.now(),
+          updatedBy: entry.updatedBy || nickname || "anon",
+        });
+      }
+    };
+
+    const setEntryFields = (id, patch, { remote = false } = {}) => {
+      const entry = getEntry(id);
+      Object.assign(entry, patch);
+      if (!remote) {
+        entry.updatedAt = Date.now();
+        entry.updatedBy = nickname || "anon";
+      }
+      if (remote) {
+        applyingRemote = true;
+        persistLocalShared();
+        applyingRemote = false;
+      } else {
+        pushEntry(id);
+      }
+    };
+
+    const loadFirebaseConfig = () => {
+      try { return JSON.parse(localStorage.getItem(FIREBASE_CFG_KEY) || "null"); }
+      catch { return null; }
+    };
+
+    const startFirebaseSync = (config) => {
+      if (!window.firebase) {
+        alert("Firebase SDK failed to load. Check your connection and refresh.");
+        return false;
+      }
+      if (!config?.apiKey || !config?.databaseURL) {
+        alert("Config needs at least apiKey and databaseURL.");
+        return false;
+      }
+      try {
+        if (!firebase.apps.length) {
+          firebaseApp = firebase.initializeApp(config);
+        } else {
+          firebaseApp = firebase.app();
+        }
+        const db = firebase.database();
+        dbRef = db.ref("paTracker/entries");
+        syncEnabled = true;
+        updateSyncPill();
+
+        dbRef.on("value", (snap) => {
+          const val = snap.val() || {};
+          applyingRemote = true;
+          Object.entries(val).forEach(([id, entry]) => {
+            sharedById[id] = {
+              notes: entry?.notes || "",
+              status: entry?.status || "open",
+              updatedAt: entry?.updatedAt || null,
+              updatedBy: entry?.updatedBy || "",
+            };
+          });
+          persistLocalShared();
+          applyingRemote = false;
+          const active = document.activeElement;
+          if (!(active && active.matches && active.matches("textarea[data-note-id], select[data-status-id]"))) {
+            renderList();
+            refreshMarkers();
+          }
+        });
+        return true;
+      } catch (err) {
+        console.error(err);
+        alert("Could not start sync: " + (err.message || err));
+        syncEnabled = false;
+        updateSyncPill();
+        return false;
+      }
+    };
+
+    const stopFirebaseSync = () => {
+      try { if (dbRef) dbRef.off(); } catch {}
+      dbRef = null;
+      syncEnabled = false;
+      localStorage.removeItem(FIREBASE_CFG_KEY);
+      updateSyncPill();
+    };
 
     const escapeHtml = (s) =>
       String(s).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
 
-    // used in renderList preview
     const notePreviewHtml = (note) =>
       escapeHtml(note.slice(0, 140)) + (note.length > 140 ? "…" : "");
+
+    const fmtUpdated = (entry) => {
+      if (!entry?.updatedAt) return "";
+      const when = new Date(entry.updatedAt);
+      const who = entry.updatedBy ? escapeHtml(entry.updatedBy) : "someone";
+      return `Updated by ${who} · ${when.toLocaleString()}`;
+    };
 
     const toRad = (d) => (d * Math.PI) / 180;
     const milesBetween = (a, b) => {
@@ -521,6 +773,12 @@
           const eb = getEta(b)?.minutes ?? milesBetween(state.me, b) ?? 1e9;
           return ea - eb;
         }
+        if (sortBy === "status") {
+          const order = STATUSES.map((s) => s.id);
+          const sa = order.indexOf(getPersonStatus(a.id));
+          const sb = order.indexOf(getPersonStatus(b.id));
+          return (sa - sb) || a.name.localeCompare(b.name);
+        }
         if (sortBy === "section") {
           return a.section.localeCompare(b.section) || a.name.localeCompare(b.name);
         }
@@ -584,28 +842,33 @@
 
     const renderList = () => {
       const list = document.getElementById("list");
-      const activeTa = document.activeElement?.matches?.("textarea[data-note-id]")
-        ? document.activeElement
-        : null;
-      if (activeTa) {
-        // Don't wipe the note field while typing; ETAs can wait
-        notesById[String(activeTa.getAttribute("data-note-id"))] = activeTa.value;
-        saveNotes(notesById);
+      const activeEl = document.activeElement;
+      const editingNote = activeEl?.matches?.("textarea[data-note-id]") ? activeEl : null;
+      const editingStatus = activeEl?.matches?.("select[data-status-id]") ? activeEl : null;
+      if (editingNote) {
+        setEntryFields(editingNote.getAttribute("data-note-id"), { notes: editingNote.value });
         return;
       }
+      if (editingStatus) return;
+
       const scrollTop = list.scrollTop;
       const people = sortedPeople();
       document.getElementById("summary").textContent =
-        `${people.length} shown` + (state.me ? ` · from your location` : "");
+        `${people.length} shown` + (state.me ? ` · from your location` : "") + (syncEnabled ? " · synced" : "");
 
       list.innerHTML = people.map((p) => {
         const inRoute = state.routeIds.includes(p.id);
         const active = state.selectedId === p.id;
         const links = mapsLinks(p);
-        const note = getNote(p.id);
+        const entry = getEntry(p.id);
+        const note = (entry.notes || "").trim();
+        const st = entry.status || "open";
         const preview = !active && note
           ? `<div class="note-preview">${notePreviewHtml(note)}</div>`
           : "";
+        const statusOptions = STATUSES.map((s) =>
+          `<option value="${s.id}" ${s.id === st ? "selected" : ""}>${s.label}</option>`
+        ).join("");
         return `
           <article class="card ${active ? "active" : ""} ${inRoute ? "route-pick" : ""}" data-id="${p.id}" role="listitem" tabindex="0" aria-label="${p.name}">
             <div class="card-top">
@@ -615,6 +878,7 @@
             <div class="addr">${p.address}${p.approx ? " (approx pin)" : ""}</div>
             <div class="tags">
               <span class="tag ${p.section}">${p.section === "permits" ? "Permits" : "Signed"}</span>
+              <span class="tag status-${st}">${statusLabel(st)}</span>
               ${p.product ? `<span class="tag">${p.product}</span>` : ""}
               ${p.scheduleDate && p.scheduleDate !== "-" ? `<span class="tag warn">Sched ${p.scheduleDate}</span>` : ""}
               ${note ? `<span class="tag warn">Note</span>` : ""}
@@ -629,8 +893,13 @@
               ${p.email ? `<a href="mailto:${p.email}">Email</a>` : ""}
             </div>
             <div class="note-box">
-              <label class="note-meta" for="note-${p.id}">Notes (saved on this device)</label>
+              <div class="status-row">
+                <label class="note-meta" for="status-${p.id}">Status</label>
+                <select id="status-${p.id}" data-status-id="${p.id}" aria-label="Status for ${escapeHtml(p.name)}">${statusOptions}</select>
+              </div>
+              <label class="note-meta" for="note-${p.id}">Notes ${syncEnabled ? "(shared live)" : "(on this device until you set up sharing)"}</label>
               <textarea id="note-${p.id}" data-note-id="${p.id}" placeholder="Gate code, called left VM, best time…"></textarea>
+              <div class="updated-by">${fmtUpdated(entry)}</div>
             </div>
           </article>`;
       }).join("");
@@ -643,11 +912,11 @@
             toggleRoute(id);
             return;
           }
-          if (e.target.closest("a") || e.target.closest("textarea") || e.target.closest(".note-box")) return;
+          if (e.target.closest("a") || e.target.closest("textarea") || e.target.closest("select") || e.target.closest(".note-box")) return;
           focusPerson(id);
         });
         card.addEventListener("keydown", (e) => {
-          if (e.target.closest("textarea")) return;
+          if (e.target.closest("textarea") || e.target.closest("select")) return;
           if (e.key === "Enter" || e.key === " ") {
             e.preventDefault();
             focusPerson(id);
@@ -657,33 +926,26 @@
 
       list.querySelectorAll("textarea[data-note-id]").forEach((ta) => {
         const id = ta.getAttribute("data-note-id");
-        ta.value = notesById[String(id)] || "";
+        ta.value = getEntry(id).notes || "";
         let timer = null;
         ta.addEventListener("click", (e) => e.stopPropagation());
         ta.addEventListener("input", () => {
-          notesById[String(id)] = ta.value;
           clearTimeout(timer);
-          timer = setTimeout(() => saveNotes(notesById), 250);
+          timer = setTimeout(() => setEntryFields(id, { notes: ta.value }), 300);
         });
-        ta.addEventListener("blur", () => {
-          notesById[String(id)] = ta.value;
-          saveNotes(notesById);
-          const card = ta.closest(".card");
-          if (!card) return;
-          const has = ta.value.trim().length > 0;
-          const tags = card.querySelector(".tags");
-          if (!tags) return;
-          const existing = [...tags.querySelectorAll(".tag")].find((t) => t.textContent === "Note");
-          if (has && !existing) {
-            const span = document.createElement("span");
-            span.className = "tag warn";
-            span.textContent = "Note";
-            tags.appendChild(span);
-          } else if (!has && existing) {
-            existing.remove();
-          }
+        ta.addEventListener("blur", () => setEntryFields(id, { notes: ta.value }));
+      });
+
+      list.querySelectorAll("select[data-status-id]").forEach((sel) => {
+        const id = sel.getAttribute("data-status-id");
+        sel.addEventListener("click", (e) => e.stopPropagation());
+        sel.addEventListener("change", () => {
+          setEntryFields(id, { status: sel.value });
+          renderList();
+          refreshMarkers();
         });
       });
+
       list.scrollTop = scrollTop;
     };
 
@@ -702,7 +964,9 @@
         const dist = state.me ? milesBetween(state.me, p) : null;
         const eta = getEta(p);
         const etaLabel = eta ? `${eta.source === "estimate" ? "~" : ""}${fmtMins(eta.minutes)}` : null;
-        const html = `<strong>${p.name}</strong><br/>${p.address}<br/>${p.section}${etaLabel?`<br/>${etaLabel}`:""}${dist!=null?` · ${fmtMiles(dist)}`:""}${p.approx?"<br/><em>approx pin</em>":""}<br/><a href="${mapsLinks(p).apple}">Apple Maps</a> · <a href="${mapsLinks(p).google}">Google Maps</a>`;
+        const st = getPersonStatus(p.id);
+        const note = getNote(p.id);
+        const html = `<strong>${p.name}</strong><br/>${p.address}<br/>${statusLabel(st)}${etaLabel?` · ${etaLabel}`:""}${dist!=null?` · ${fmtMiles(dist)}`:""}${note?`<br/><em>${escapeHtml(note.slice(0,80))}</em>`:""}${p.approx?"<br/><em>approx pin</em>":""}<br/><a href="${mapsLinks(p).apple}">Apple Maps</a> · <a href="${mapsLinks(p).google}">Google Maps</a>`;
         if (existing) {
           existing.setIcon(icon);
           existing.setPopupContent(html);
@@ -999,6 +1263,62 @@
       if (state.following) stopFollowing();
       else startFollowing();
     });
+
+    const shareModal = document.getElementById("shareModal");
+    const openShareModal = () => {
+      document.getElementById("nickInput").value = nickname || "";
+      const cfg = loadFirebaseConfig();
+      document.getElementById("firebaseConfigInput").value = cfg ? JSON.stringify(cfg, null, 2) : "";
+      shareModal.classList.add("show");
+    };
+    const closeShareModal = () => shareModal.classList.remove("show");
+
+    document.getElementById("btnShareSetup").addEventListener("click", openShareModal);
+    document.getElementById("btnShareClose").addEventListener("click", closeShareModal);
+    shareModal.addEventListener("click", (e) => {
+      if (e.target === shareModal) closeShareModal();
+    });
+
+    document.getElementById("btnShareClear").addEventListener("click", () => {
+      stopFirebaseSync();
+      closeShareModal();
+      renderList();
+    });
+
+    document.getElementById("btnShareSave").addEventListener("click", () => {
+      nickname = (document.getElementById("nickInput").value || "").trim();
+      localStorage.setItem(NICK_KEY, nickname);
+      const raw = document.getElementById("firebaseConfigInput").value.trim();
+      if (!raw) {
+        alert("Paste your Firebase config JSON first.");
+        return;
+      }
+      let config;
+      try {
+        // Allow pasting `const firebaseConfig = {...};` snippets
+        const cleaned = raw
+          .replace(/^\s*const\s+\w+\s*=\s*/i, "")
+          .replace(/^\s*firebaseConfig\s*=\s*/i, "")
+          .replace(/;\s*$/, "");
+        config = JSON.parse(cleaned);
+      } catch (err) {
+        alert("Could not parse config JSON. Paste only the { ... } object.");
+        return;
+      }
+      localStorage.setItem(FIREBASE_CFG_KEY, JSON.stringify(config));
+      if (startFirebaseSync(config)) {
+        // Upload any local entries once so teammates get them
+        Object.keys(sharedById).forEach((id) => pushEntry(id));
+        closeShareModal();
+        renderList();
+      }
+    });
+
+    // Auto-connect: embedded config (for all visitors) OR this browser's saved config
+    const existingCfg = (typeof EMBEDDED_FIREBASE_CONFIG !== "undefined" && EMBEDDED_FIREBASE_CONFIG)
+      || loadFirebaseConfig();
+    if (existingCfg) startFirebaseSync(existingCfg);
+    updateSyncPill();
 
     const syncMapToggleLabels = () => {
       const expanded = document.body.classList.contains("map-expanded");
