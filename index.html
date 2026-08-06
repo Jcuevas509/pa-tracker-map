@@ -312,19 +312,31 @@
       font-size: 0.82rem;
     }
     .tag.status-new, .tag.status-open { color: #93a1b0; }
-    .tag.status-contacted { color: #3d9cf0; border-color: color-mix(in srgb, #3d9cf0 45%, transparent); }
-    .tag.status-no_answer { color: #7dd3fc; border-color: color-mix(in srgb, #7dd3fc 45%, transparent); }
-    .tag.status-has_solar { color: #f0b429; border-color: color-mix(in srgb, #f0b429 45%, transparent); }
-    .tag.status-with_competitor { color: #fb923c; border-color: color-mix(in srgb, #fb923c 45%, transparent); }
-    .tag.status-interested { color: #34d399; border-color: color-mix(in srgb, #34d399 45%, transparent); }
-    .tag.status-appointment, .tag.status-scheduled { color: #a78bfa; border-color: color-mix(in srgb, #a78bfa 45%, transparent); }
-    .tag.status-visited { color: #c4b5fd; border-color: color-mix(in srgb, #c4b5fd 45%, transparent); }
-    .tag.status-not_interested { color: #94a3b8; border-color: color-mix(in srgb, #94a3b8 45%, transparent); }
-    .tag.status-callback { color: #fbbf24; border-color: color-mix(in srgb, #fbbf24 45%, transparent); }
-    .tag.status-switched, .tag.status-done { color: #3ecf8e; border-color: color-mix(in srgb, #3ecf8e 45%, transparent); }
-    .tag.status-lost { color: #f87171; border-color: color-mix(in srgb, #f87171 45%, transparent); }
-    .tag.status-issue { color: #ef5f67; border-color: color-mix(in srgb, #ef5f67 45%, transparent); }
+    .tag.status-contacted, .tag.status-no_answer, .tag.status-callback { color: #3d9cf0; border-color: color-mix(in srgb, #3d9cf0 45%, transparent); }
+    .tag.status-has_solar, .tag.status-with_competitor { color: #f0b429; border-color: color-mix(in srgb, #f0b429 45%, transparent); }
+    .tag.status-interested, .tag.status-appointment, .tag.status-scheduled, .tag.status-visited, .tag.status-switched, .tag.status-done { color: #34d399; border-color: color-mix(in srgb, #34d399 45%, transparent); }
+    .tag.status-not_interested, .tag.status-lost, .tag.status-issue { color: #94a3b8; border-color: color-mix(in srgb, #94a3b8 45%, transparent); }
     .toolbar select.btn { max-width: 48%; }
+    .status-filters {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 6px;
+    }
+    .status-filters .filter-chip {
+      border: 1px solid var(--border);
+      background: var(--bg);
+      color: var(--muted);
+      border-radius: 999px;
+      padding: 6px 10px;
+      font-size: 0.75rem;
+      cursor: pointer;
+      user-select: none;
+    }
+    .status-filters .filter-chip[aria-pressed="true"] {
+      color: var(--text);
+      border-color: var(--accent);
+      background: color-mix(in srgb, var(--accent) 18%, var(--bg));
+    }
     .modal-backdrop {
       display: none;
       position: fixed;
@@ -431,9 +443,7 @@
     <div class="toolbar">
       <input type="search" id="search" placeholder="Search name, city, phone…" aria-label="Search people" />
       <div class="row">
-        <select id="filterStatus" class="btn" aria-label="Filter by status">
-          <option value="all">All statuses</option>
-        </select>
+        <span class="meta">Status filter (multi):</span>
         <select id="sortBy" class="btn" aria-label="Sort list" style="margin-left:auto">
           <option value="name">Sort: Name</option>
           <option value="distance">Sort: Time / Distance</option>
@@ -441,10 +451,11 @@
           <option value="section">Sort: Section</option>
         </select>
       </div>
+      <div class="status-filters" id="filterStatus" role="group" aria-label="Filter by status"></div>
       <div class="row">
         <span class="meta" id="summary"></span>
       </div>
-      <div class="meta" id="shareTip">Switch leads: set status (has solar, not interested, etc.) + notes. Filter by status below.</div>
+      <div class="meta" id="shareTip">Tap statuses to filter (multi-select). Clear all chips to show everyone.</div>
     </div>
     <div class="list" id="list" role="list"></div>
     <div class="route-bar" id="routeBar">
@@ -578,41 +589,83 @@
     const STATUSES = [
       { id: "new", label: "New" },
       { id: "contacted", label: "Contacted" },
-      { id: "no_answer", label: "No answer / VM" },
       { id: "has_solar", label: "Has solar" },
-      { id: "with_competitor", label: "With competitor" },
       { id: "interested", label: "Interested" },
-      { id: "appointment", label: "Appointment set" },
-      { id: "visited", label: "Visited" },
-      { id: "callback", label: "Callback later" },
       { id: "not_interested", label: "Not interested" },
-      { id: "switched", label: "Switched / Won" },
-      { id: "lost", label: "Lost" },
-      { id: "issue", label: "Issue" },
     ];
-    // Map older status ids so existing Firebase data still displays
+    // Map older / expanded status ids into the simplified set
     const STATUS_ALIASES = {
       open: "new",
-      scheduled: "appointment",
-      done: "switched",
+      no_answer: "contacted",
+      callback: "contacted",
+      with_competitor: "has_solar",
+      appointment: "interested",
+      scheduled: "interested",
+      visited: "interested",
+      switched: "interested",
+      done: "interested",
+      lost: "not_interested",
+      issue: "not_interested",
     };
-    const normalizeStatus = (id) => STATUS_ALIASES[id] || id || "new";
+    const normalizeStatus = (id) => {
+      let cur = id || "new";
+      // resolve alias chain once
+      if (STATUS_ALIASES[cur]) cur = STATUS_ALIASES[cur];
+      if (!STATUSES.some((s) => s.id === cur)) return "new";
+      return cur;
+    };
     const statusLabel = (id) => {
       const nid = normalizeStatus(id);
       return STATUSES.find((s) => s.id === nid)?.label || "New";
     };
 
-    // Populate status filter dropdown
-    (() => {
-      const sel = document.getElementById("filterStatus");
-      if (!sel) return;
-      STATUSES.forEach((s) => {
-        const opt = document.createElement("option");
-        opt.value = s.id;
-        opt.textContent = s.label;
-        sel.appendChild(opt);
+    // Multi-select status filter chips (empty = show all)
+    const selectedStatusFilters = new Set();
+    const refreshStatusFilterUI = () => {
+      const wrap = document.getElementById("filterStatus");
+      if (!wrap) return;
+      wrap.querySelectorAll(".filter-chip").forEach((btn) => {
+        const id = btn.getAttribute("data-status");
+        const on = selectedStatusFilters.has(id);
+        btn.setAttribute("aria-pressed", on ? "true" : "false");
       });
-    })();
+    };
+    const buildStatusFilters = () => {
+      const wrap = document.getElementById("filterStatus");
+      if (!wrap) return;
+      wrap.innerHTML = "";
+      STATUSES.forEach((s) => {
+        const btn = document.createElement("button");
+        btn.type = "button";
+        btn.className = "filter-chip";
+        btn.textContent = s.label;
+        btn.setAttribute("data-status", s.id);
+        btn.setAttribute("aria-pressed", "false");
+        btn.addEventListener("click", () => {
+          if (selectedStatusFilters.has(s.id)) selectedStatusFilters.delete(s.id);
+          else selectedStatusFilters.add(s.id);
+          refreshStatusFilterUI();
+          renderList();
+          refreshMarkers();
+          updateRouteUI();
+        });
+        wrap.appendChild(btn);
+      });
+      const clearBtn = document.createElement("button");
+      clearBtn.type = "button";
+      clearBtn.className = "filter-chip";
+      clearBtn.textContent = "Clear";
+      clearBtn.setAttribute("aria-label", "Clear status filters");
+      clearBtn.addEventListener("click", () => {
+        selectedStatusFilters.clear();
+        refreshStatusFilterUI();
+        renderList();
+        refreshMarkers();
+        updateRouteUI();
+      });
+      wrap.appendChild(clearBtn);
+    };
+    buildStatusFilters();
 
     const LOCAL_SHARED_KEY = "pa-tracker-shared-v1";
     const FIREBASE_CFG_KEY = "pa-tracker-firebase-config";
@@ -895,12 +948,11 @@
     const visiblePeople = () => {
       const showSigned = document.getElementById("showSigned").checked;
       const showPermits = document.getElementById("showPermits").checked;
-      const statusFilter = document.getElementById("filterStatus")?.value || "all";
       const q = document.getElementById("search").value.trim().toLowerCase();
       return PEOPLE.filter((p) => {
         if (p.section === "signed" && !showSigned) return false;
         if (p.section === "permits" && !showPermits) return false;
-        if (statusFilter !== "all" && getPersonStatus(p.id) !== statusFilter) return false;
+        if (selectedStatusFilters.size > 0 && !selectedStatusFilters.has(getPersonStatus(p.id))) return false;
         if (!q) return true;
         const st = statusLabel(getPersonStatus(p.id)).toLowerCase();
         const hay = `${p.name} ${p.address} ${p.phone} ${p.email} ${p.jurisdiction} ${p.product} ${st}`.toLowerCase();
@@ -1087,7 +1139,7 @@
         const id = sel.getAttribute("data-status-id");
         sel.addEventListener("click", (e) => e.stopPropagation());
         sel.addEventListener("change", () => {
-          setEntryFields(id, { status: sel.value });
+          setEntryFields(id, { status: normalizeStatus(sel.value) });
           renderList();
           refreshMarkers();
         });
@@ -1519,7 +1571,7 @@
       setStatus("Route cleared.");
     });
 
-    ["showSigned", "showPermits", "search", "sortBy", "filterStatus"].forEach((id) => {
+    ["showSigned", "showPermits", "search", "sortBy"].forEach((id) => {
       document.getElementById(id).addEventListener("input", () => {
         renderList();
         refreshMarkers();
