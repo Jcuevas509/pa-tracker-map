@@ -311,11 +311,12 @@
       padding: 8px 10px;
       font-size: 0.82rem;
     }
-    .tag.status-new, .tag.status-open { color: #93a1b0; }
-    .tag.status-contacted, .tag.status-no_answer, .tag.status-callback { color: #3d9cf0; border-color: color-mix(in srgb, #3d9cf0 45%, transparent); }
-    .tag.status-has_solar, .tag.status-with_competitor { color: #f0b429; border-color: color-mix(in srgb, #f0b429 45%, transparent); }
-    .tag.status-interested, .tag.status-appointment, .tag.status-scheduled, .tag.status-visited, .tag.status-switched, .tag.status-done { color: #34d399; border-color: color-mix(in srgb, #34d399 45%, transparent); }
-    .tag.status-not_interested, .tag.status-lost, .tag.status-issue { color: #94a3b8; border-color: color-mix(in srgb, #94a3b8 45%, transparent); }
+    .tag.status-open, .tag.status-new { color: #93a1b0; }
+    .tag.status-follow_up, .tag.status-contacted, .tag.status-interested, .tag.status-appointment, .tag.status-callback { color: #3d9cf0; border-color: color-mix(in srgb, #3d9cf0 45%, transparent); }
+    .tag.status-not_home, .tag.status-no_answer { color: #fbbf24; border-color: color-mix(in srgb, #fbbf24 45%, transparent); }
+    .tag.status-not_interested, .tag.status-lost { color: #94a3b8; border-color: color-mix(in srgb, #94a3b8 45%, transparent); }
+    .tag.status-not_qualified, .tag.status-has_solar, .tag.status-with_competitor, .tag.status-issue { color: #fb923c; border-color: color-mix(in srgb, #fb923c 45%, transparent); }
+    .tag.status-won, .tag.status-switched, .tag.status-done, .tag.status-visited { color: #34d399; border-color: color-mix(in srgb, #34d399 45%, transparent); }
     .toolbar select.btn { max-width: 48%; }
     .status-filters {
       display: flex;
@@ -587,36 +588,39 @@
     const setStatus = (_msg) => {};
 
     const STATUSES = [
-      { id: "new", label: "New" },
-      { id: "contacted", label: "Contacted" },
-      { id: "has_solar", label: "Has solar" },
-      { id: "interested", label: "Interested" },
+      { id: "open", label: "Open" },
+      { id: "follow_up", label: "Follow-up" },
+      { id: "not_home", label: "Not home" },
       { id: "not_interested", label: "Not interested" },
+      { id: "not_qualified", label: "Not qualified" },
+      { id: "won", label: "Won" },
     ];
-    // Map older / expanded status ids into the simplified set
+    // Map older status ids into this set
     const STATUS_ALIASES = {
-      open: "new",
-      no_answer: "contacted",
-      callback: "contacted",
-      with_competitor: "has_solar",
-      appointment: "interested",
-      scheduled: "interested",
-      visited: "interested",
-      switched: "interested",
-      done: "interested",
+      new: "open",
+      contacted: "follow_up",
+      no_answer: "not_home",
+      callback: "follow_up",
+      has_solar: "not_qualified",
+      with_competitor: "follow_up",
+      interested: "follow_up",
+      appointment: "follow_up",
+      scheduled: "follow_up",
+      visited: "follow_up",
+      switched: "won",
+      done: "won",
       lost: "not_interested",
-      issue: "not_interested",
+      issue: "follow_up",
     };
     const normalizeStatus = (id) => {
-      let cur = id || "new";
-      // resolve alias chain once
+      let cur = id || "open";
       if (STATUS_ALIASES[cur]) cur = STATUS_ALIASES[cur];
-      if (!STATUSES.some((s) => s.id === cur)) return "new";
+      if (!STATUSES.some((s) => s.id === cur)) return "open";
       return cur;
     };
     const statusLabel = (id) => {
       const nid = normalizeStatus(id);
-      return STATUSES.find((s) => s.id === nid)?.label || "New";
+      return STATUSES.find((s) => s.id === nid)?.label || "Open";
     };
 
     // Multi-select status filter chips (empty = show all)
@@ -679,7 +683,7 @@
     try {
       const oldNotes = JSON.parse(localStorage.getItem("pa-tracker-notes-v1") || "{}");
       Object.entries(oldNotes || {}).forEach(([id, notes]) => {
-        if (!sharedById[id]) sharedById[id] = { notes: notes || "", status: "new", updatedAt: Date.now(), updatedBy: "local" };
+        if (!sharedById[id]) sharedById[id] = { notes: notes || "", status: "open", updatedAt: Date.now(), updatedBy: "local" };
         else if (!sharedById[id].notes && notes) sharedById[id].notes = notes;
       });
     } catch {}
@@ -697,13 +701,13 @@
     const getEntry = (id) => {
       const key = String(id);
       if (!sharedById[key]) {
-        sharedById[key] = { notes: "", status: "new", updatedAt: null, updatedBy: "" };
+        sharedById[key] = { notes: "", status: "open", updatedAt: null, updatedBy: "" };
       }
       return sharedById[key];
     };
 
     const getNote = (id) => (getEntry(id).notes || "").trim();
-    const getPersonStatus = (id) => normalizeStatus(getEntry(id).status || "new");
+    const getPersonStatus = (id) => normalizeStatus(getEntry(id).status || "open");
 
     const updateSyncPill = () => {
       const pill = document.getElementById("syncPill");
@@ -713,7 +717,7 @@
         pill.textContent = "Live sync";
         pill.classList.add("on");
         pill.classList.remove("off");
-        if (tip) tip.textContent = "Status + notes sync live for everyone with this link. Set Your name so edits are labeled.";
+        if (tip) tip.textContent = "Status + notes sync live for everyone with this link. Optional: set Your name so edits are labeled.";
       } else {
         pill.textContent = "Local only";
         pill.classList.add("off");
@@ -729,7 +733,7 @@
       if (syncEnabled && dbRef && !applyingRemote) {
         dbRef.child(key).set({
           notes: entry.notes || "",
-          status: entry.status || "new",
+          status: entry.status || "open",
           updatedAt: entry.updatedAt || Date.now(),
           updatedBy: entry.updatedBy || nickname || "anon",
         });
@@ -783,7 +787,7 @@
           Object.entries(val).forEach(([id, entry]) => {
             sharedById[id] = {
               notes: entry?.notes || "",
-              status: entry?.status || "new",
+              status: entry?.status || "open",
               updatedAt: entry?.updatedAt || null,
               updatedBy: entry?.updatedBy || "",
             };
@@ -1516,10 +1520,6 @@
     if (existingCfg) startFirebaseSync(existingCfg);
     updateSyncPill();
 
-    // Prompt once for a display name if sync is on and name is empty
-    if (syncEnabled && !nickname) {
-      setTimeout(openShareModal, 400);
-    }
 
     const syncMapToggleLabels = () => {
       const expanded = document.body.classList.contains("map-expanded");
