@@ -1054,9 +1054,9 @@
           }
           const mapsLink = e.target.closest("a[data-maps-link]");
           if (mapsLink) {
-            e.preventDefault();
+            // Let the browser honor target="_blank". Do NOT preventDefault +
+            // window.open(..., "noopener") — Chrome often keeps the same tab.
             e.stopPropagation();
-            window.open(mapsLink.href, "_blank", "noopener,noreferrer");
             return;
           }
           if (e.target.closest("a") || e.target.closest("textarea") || e.target.closest("select") || e.target.closest(".note-box")) return;
@@ -1113,7 +1113,7 @@
         const etaLabel = eta ? `${eta.source === "estimate" ? "~" : ""}${fmtMins(eta.minutes)}` : null;
         const st = getPersonStatus(p.id);
         const note = getNote(p.id);
-        const html = `<strong>${p.name}</strong><br/>${p.address}<br/>${statusLabel(st)}${etaLabel?` · ${etaLabel}`:""}${dist!=null?` · ${fmtMiles(dist)}`:""}${note?`<br/><em>${escapeHtml(note.slice(0,80))}</em>`:""}${p.approx?"<br/><em>approx pin</em>":""}<br/><a href="${mapsLinks(p).apple}">Apple Maps</a> · <a href="${mapsLinks(p).google}">Google Maps</a>`;
+        const html = `<strong>${p.name}</strong><br/>${p.address}<br/>${statusLabel(st)}${etaLabel?` · ${etaLabel}`:""}${dist!=null?` · ${fmtMiles(dist)}`:""}${note?`<br/><em>${escapeHtml(note.slice(0,80))}</em>`:""}${p.approx?"<br/><em>approx pin</em>":""}<br/><a href="${mapsLinks(p).apple}" target="_blank" rel="noopener noreferrer">Apple Maps</a> · <a href="${mapsLinks(p).google}" target="_blank" rel="noopener noreferrer">Google Maps</a>`;
         if (existing) {
           existing.setIcon(icon);
           existing.setPopupContent(html);
@@ -1167,7 +1167,13 @@
       if (middle.length > 8) {
         setStatus(`Opened first ${limited.length + 1} of ${stops.length} stops (Google Maps waypoint limit).`);
       }
-      window.open(url, "_blank", "noopener");
+      // Open in a real new tab (avoid feature-string noopener — breaks Chrome)
+      const opened = window.open(url, "_blank");
+      if (opened) opened.opener = null;
+      else {
+        // Popup blocked: fall back to same-tab only if needed
+        window.location.assign(url);
+      }
     };
 
     const btnLocate = document.getElementById("btnLocate");
