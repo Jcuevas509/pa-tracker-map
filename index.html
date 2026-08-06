@@ -302,11 +302,13 @@
       flex-wrap: wrap;
     }
     .status-row select {
+      flex: 1;
+      min-width: 160px;
       border: 1px solid var(--border);
       background: var(--bg);
       color: var(--text);
       border-radius: 8px;
-      padding: 7px 10px;
+      padding: 8px 10px;
       font-size: 0.82rem;
     }
     .tag.status-new, .tag.status-open { color: #93a1b0; }
@@ -1025,25 +1027,21 @@
             <div class="addr">${p.address}${p.approx ? " (approx pin)" : ""}</div>
             <div class="tags">
               <span class="tag ${p.section}">${p.section === "permits" ? "Permits" : "Signed"}</span>
-              <span class="tag status-${st}">${statusLabel(st)}</span>
               ${p.product ? `<span class="tag">${p.product}</span>` : ""}
               ${p.scheduleDate && p.scheduleDate !== "-" ? `<span class="tag warn">Sched ${p.scheduleDate}</span>` : ""}
               ${note ? `<span class="tag warn">Note</span>` : ""}
               ${inRoute ? `<span class="tag">Stop #${state.routeIds.indexOf(p.id)+1}</span>` : ""}
+            </div>
+            <div class="status-row">
+              <select id="status-${p.id}" data-status-id="${p.id}" aria-label="Status for ${escapeHtml(p.name)}">${statusOptions}</select>
             </div>
             ${preview}
             <div class="actions">
               <button type="button" data-act="route">${inRoute ? "Remove stop" : "Add to path"}</button>
               <a class="maps-apple" href="${links.apple}" target="_blank" rel="noopener" aria-label="Apple Maps directions">Apple Maps</a>
               <a class="maps-google" href="${links.google}" target="_blank" rel="noopener" aria-label="Google Maps directions">Google Maps</a>
-              ${p.phone ? `<a href="tel:${p.phone.replace(/[^\d+]/g,"")}">Call</a>` : ""}
-              ${p.email ? `<a href="mailto:${p.email}">Email</a>` : ""}
             </div>
             <div class="note-box">
-              <div class="status-row">
-                <label class="note-meta" for="status-${p.id}">Status</label>
-                <select id="status-${p.id}" data-status-id="${p.id}" aria-label="Status for ${escapeHtml(p.name)}">${statusOptions}</select>
-              </div>
               <label class="note-meta" for="note-${p.id}">Notes ${syncEnabled ? "(shared live)" : "(on this device until you set up sharing)"}</label>
               <textarea id="note-${p.id}" data-note-id="${p.id}" placeholder="Gate code, called left VM, best time…"></textarea>
               <div class="updated-by">${fmtUpdated(entry)}</div>
