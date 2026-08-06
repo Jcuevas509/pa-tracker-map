@@ -381,25 +381,96 @@
     .tag.status-not_qualified, .tag.status-has_solar, .tag.status-with_competitor, .tag.status-issue { color: #fb923c; border-color: color-mix(in srgb, #fb923c 45%, transparent); }
     .tag.status-won, .tag.status-switched, .tag.status-done, .tag.status-visited { color: #34d399; border-color: color-mix(in srgb, #34d399 45%, transparent); }
     .toolbar select.btn { max-width: 48%; }
-    .status-filters {
+    .filter-row {
       display: flex;
       flex-wrap: wrap;
-      gap: 6px;
+      gap: 8px;
+      align-items: stretch;
     }
-    .status-filters .filter-chip {
+    .multi-select {
+      position: relative;
+      flex: 1;
+      min-width: 160px;
+    }
+    .multi-select-toggle {
+      width: 100%;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 8px;
       border: 1px solid var(--border);
       background: var(--bg);
+      color: var(--text);
+      border-radius: 8px;
+      padding: 8px 10px;
+      font-size: 0.8rem;
+      cursor: pointer;
+      text-align: left;
+    }
+    .multi-select-toggle:focus-visible {
+      outline: 2px solid var(--accent);
+      outline-offset: 2px;
+    }
+    .multi-select-toggle .chev {
       color: var(--muted);
-      border-radius: 999px;
-      padding: 6px 10px;
+      font-size: 0.7rem;
+    }
+    .multi-select-menu {
+      display: none;
+      position: absolute;
+      z-index: 40;
+      top: calc(100% + 4px);
+      left: 0;
+      right: 0;
+      background: var(--panel);
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      padding: 6px;
+      box-shadow: 0 10px 28px rgba(0,0,0,.35);
+      max-height: 240px;
+      overflow: auto;
+    }
+    .multi-select.open .multi-select-menu { display: block; }
+    .multi-select-option {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      padding: 8px 8px;
+      border-radius: 8px;
+      font-size: 0.82rem;
+      cursor: pointer;
+      color: var(--text);
+    }
+    .multi-select-option:hover,
+    .multi-select-option:focus-within {
+      background: color-mix(in srgb, var(--accent) 14%, var(--bg));
+    }
+    .multi-select-option input {
+      width: 16px;
+      height: 16px;
+      accent-color: var(--accent);
+    }
+    .multi-select-option[aria-disabled="true"] {
+      opacity: 0.45;
+      cursor: not-allowed;
+    }
+    .multi-select-footer {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      gap: 8px;
+      padding: 6px 8px 2px;
+      border-top: 1px solid var(--border);
+      margin-top: 4px;
+    }
+    .multi-select-footer .meta { font-size: 0.72rem; }
+    .multi-select-footer button {
+      border: 0;
+      background: transparent;
+      color: var(--accent);
       font-size: 0.75rem;
       cursor: pointer;
-      user-select: none;
-    }
-    .status-filters .filter-chip[aria-pressed="true"] {
-      color: var(--text);
-      border-color: var(--accent);
-      background: color-mix(in srgb, var(--accent) 18%, var(--bg));
+      padding: 4px 2px;
     }
     .modal-backdrop {
       display: none;
@@ -506,20 +577,25 @@
   <aside>
     <div class="toolbar">
       <input type="search" id="search" placeholder="Search name, city, phone…" aria-label="Search people" />
-      <div class="row">
-        <span class="meta">Status filter (multi):</span>
-        <select id="sortBy" class="btn" aria-label="Sort list" style="margin-left:auto">
+      <div class="filter-row">
+        <div class="multi-select" id="filterStatusWrap">
+          <button type="button" class="multi-select-toggle" id="filterStatusToggle" aria-haspopup="listbox" aria-expanded="false" aria-controls="filterStatusMenu">
+            <span id="filterStatusLabel">Status: All</span>
+            <span class="chev" aria-hidden="true">▾</span>
+          </button>
+          <div class="multi-select-menu" id="filterStatusMenu" role="listbox" aria-multiselectable="true" aria-label="Filter by status"></div>
+        </div>
+        <select id="sortBy" class="btn" aria-label="Sort list">
           <option value="name">Sort: Name</option>
           <option value="distance">Sort: Time / Distance</option>
           <option value="status">Sort: Status</option>
           <option value="section">Sort: Section</option>
         </select>
       </div>
-      <div class="status-filters" id="filterStatus" role="group" aria-label="Filter by status"></div>
       <div class="row">
         <span class="meta" id="summary"></span>
       </div>
-      <div class="meta" id="shareTip">Tap statuses to filter (multi-select). Clear all chips to show everyone.</div>
+      <div class="meta" id="shareTip">Status filter is multi-select — pick any combination. Clear to show everyone.</div>
     </div>
     <div class="list" id="list" role="list"></div>
     <div class="route-bar" id="routeBar">
@@ -575,10 +651,38 @@
     // Embedded for team-wide sync
 
     const SITE_PASSWORD = "limitless";
-    const AUTH_KEY = "pa-tracker-authed-v1";
-    const isAuthed = () => sessionStorage.getItem(AUTH_KEY) === "1";
+    // Persist unlock across tabs/restarts (not session-only). Client-side gate only.
+    const AUTH_KEY = "pa-tracker-authed-v2";
+    const AUTH_TTL_MS = 1000 * 60 * 60 * 24 * 90; // 90 days
+    const AUTH_VERSION = "limitless-v1"; // bump if password changes to force re-login
+    const readAuth = () => {
+      try {
+        const raw = localStorage.getItem(AUTH_KEY);
+        if (!raw) return null;
+        return JSON.parse(raw);
+      } catch {
+        return null;
+      }
+    };
+    const isAuthed = () => {
+      const data = readAuth();
+      if (!data || data.v !== AUTH_VERSION || data.ok !== true) return false;
+      if (typeof data.exp !== "number" || Date.now() > data.exp) {
+        try { localStorage.removeItem(AUTH_KEY); } catch {}
+        return false;
+      }
+      return true;
+    };
     const unlockApp = () => {
-      sessionStorage.setItem(AUTH_KEY, "1");
+      try {
+        localStorage.setItem(AUTH_KEY, JSON.stringify({
+          ok: true,
+          v: AUTH_VERSION,
+          exp: Date.now() + AUTH_TTL_MS,
+        }));
+        // Clear legacy session flag if present
+        sessionStorage.removeItem("pa-tracker-authed-v1");
+      } catch {}
       document.body.classList.remove("locked");
       const lock = document.getElementById("lockScreen");
       if (lock) lock.classList.add("hidden");
@@ -592,7 +696,10 @@
       const input = document.getElementById("lockPassword");
       if (input) setTimeout(() => input.focus(), 50);
     };
-    if (isAuthed()) {
+    // One-time migrate: if this tab already unlocked via old session key, keep them in
+    if (!isAuthed() && sessionStorage.getItem("pa-tracker-authed-v1") === "1") {
+      unlockApp();
+    } else if (isAuthed()) {
       document.body.classList.remove("locked");
       const lock = document.getElementById("lockScreen");
       if (lock) lock.classList.add("hidden");
@@ -686,51 +793,102 @@
       return STATUSES.find((s) => s.id === nid)?.label || "Open";
     };
 
-    // Multi-select status filter chips (empty = show all)
+    // Multi-select status filter dropdown (empty = show all; no selection cap)
     const selectedStatusFilters = new Set();
+    const statusFilterSummary = () => {
+      if (selectedStatusFilters.size === 0) return "Status: All";
+      const labels = STATUSES.filter((s) => selectedStatusFilters.has(s.id)).map((s) => s.label);
+      if (labels.length <= 2) return `Status: ${labels.join(", ")}`;
+      return `Status: ${labels[0]}, ${labels[1]} +${labels.length - 2}`;
+    };
     const refreshStatusFilterUI = () => {
-      const wrap = document.getElementById("filterStatus");
-      if (!wrap) return;
-      wrap.querySelectorAll(".filter-chip").forEach((btn) => {
-        const id = btn.getAttribute("data-status");
-        const on = selectedStatusFilters.has(id);
-        btn.setAttribute("aria-pressed", on ? "true" : "false");
+      const label = document.getElementById("filterStatusLabel");
+      const menu = document.getElementById("filterStatusMenu");
+      if (label) label.textContent = statusFilterSummary();
+      if (!menu) return;
+      menu.querySelectorAll(".multi-select-option").forEach((row) => {
+        const id = row.getAttribute("data-status");
+        const input = row.querySelector("input");
+        const checked = selectedStatusFilters.has(id);
+        if (input) {
+          input.checked = checked;
+          input.disabled = false;
+        }
+        row.setAttribute("aria-disabled", "false");
       });
+      const countEl = menu.querySelector("[data-filter-count]");
+      if (countEl) {
+        countEl.textContent = selectedStatusFilters.size === 0
+          ? "All statuses"
+          : `${selectedStatusFilters.size} selected`;
+      }
+    };
+    const applyStatusFilters = () => {
+      refreshStatusFilterUI();
+      renderList();
+      refreshMarkers();
+      updateRouteUI();
+    };
+    const setStatusFilterOpen = (open) => {
+      const wrap = document.getElementById("filterStatusWrap");
+      const toggle = document.getElementById("filterStatusToggle");
+      if (!wrap || !toggle) return;
+      wrap.classList.toggle("open", open);
+      toggle.setAttribute("aria-expanded", open ? "true" : "false");
     };
     const buildStatusFilters = () => {
-      const wrap = document.getElementById("filterStatus");
-      if (!wrap) return;
-      wrap.innerHTML = "";
+      const menu = document.getElementById("filterStatusMenu");
+      const toggle = document.getElementById("filterStatusToggle");
+      const wrap = document.getElementById("filterStatusWrap");
+      if (!menu || !toggle || !wrap) return;
+      menu.innerHTML = "";
       STATUSES.forEach((s) => {
-        const btn = document.createElement("button");
-        btn.type = "button";
-        btn.className = "filter-chip";
-        btn.textContent = s.label;
-        btn.setAttribute("data-status", s.id);
-        btn.setAttribute("aria-pressed", "false");
-        btn.addEventListener("click", () => {
-          if (selectedStatusFilters.has(s.id)) selectedStatusFilters.delete(s.id);
-          else selectedStatusFilters.add(s.id);
-          refreshStatusFilterUI();
-          renderList();
-          refreshMarkers();
-          updateRouteUI();
+        const row = document.createElement("label");
+        row.className = "multi-select-option";
+        row.setAttribute("data-status", s.id);
+        row.setAttribute("role", "option");
+        row.setAttribute("aria-disabled", "false");
+        const input = document.createElement("input");
+        input.type = "checkbox";
+        input.value = s.id;
+        input.setAttribute("aria-label", s.label);
+        input.addEventListener("change", () => {
+          if (input.checked) selectedStatusFilters.add(s.id);
+          else selectedStatusFilters.delete(s.id);
+          applyStatusFilters();
         });
-        wrap.appendChild(btn);
+        const span = document.createElement("span");
+        span.textContent = s.label;
+        row.appendChild(input);
+        row.appendChild(span);
+        menu.appendChild(row);
       });
+      const footer = document.createElement("div");
+      footer.className = "multi-select-footer";
+      footer.innerHTML = `<span class="meta" data-filter-count>All statuses</span>`;
       const clearBtn = document.createElement("button");
       clearBtn.type = "button";
-      clearBtn.className = "filter-chip";
       clearBtn.textContent = "Clear";
       clearBtn.setAttribute("aria-label", "Clear status filters");
-      clearBtn.addEventListener("click", () => {
+      clearBtn.addEventListener("click", (e) => {
+        e.preventDefault();
+        e.stopPropagation();
         selectedStatusFilters.clear();
-        refreshStatusFilterUI();
-        renderList();
-        refreshMarkers();
-        updateRouteUI();
+        applyStatusFilters();
       });
-      wrap.appendChild(clearBtn);
+      footer.appendChild(clearBtn);
+      menu.appendChild(footer);
+
+      toggle.addEventListener("click", (e) => {
+        e.stopPropagation();
+        setStatusFilterOpen(!wrap.classList.contains("open"));
+      });
+      menu.addEventListener("click", (e) => e.stopPropagation());
+      document.addEventListener("click", () => setStatusFilterOpen(false));
+      document.addEventListener("keydown", (e) => {
+        if (e.key === "Escape") setStatusFilterOpen(false);
+      });
+      refreshStatusFilterUI();
     };
     buildStatusFilters();
 
@@ -1268,8 +1426,9 @@
         const eta = getEta(p);
         const etaLabel = eta ? `${eta.source === "estimate" ? "~" : ""}${fmtMins(eta.minutes)}` : null;
         const st = getPersonStatus(p.id);
+        const age = getPersonAge(p.id);
         const note = getNote(p.id);
-        const html = `<strong>${p.name}</strong><br/>${p.address}<br/>${statusLabel(st)}${etaLabel?` · ${etaLabel}`:""}${dist!=null?` · ${fmtMiles(dist)}`:""}${note?`<br/><em>${escapeHtml(note.slice(0,80))}</em>`:""}${p.approx?"<br/><em>approx pin</em>":""}<br/><a href="${mapsLinks(p).apple}" target="_blank" rel="noopener noreferrer">Apple Maps</a> · <a href="${mapsLinks(p).google}" target="_blank" rel="noopener noreferrer">Google Maps</a>`;
+        const html = `<strong>${escapeHtml(p.name)}</strong>${age ? ` · Age ${escapeHtml(age)}` : ""}<br/>${escapeHtml(p.address)}<br/>${escapeHtml(statusLabel(st))}${etaLabel?` · ${etaLabel}`:""}${dist!=null?` · ${fmtMiles(dist)}`:""}${note?`<br/><em>${escapeHtml(note.slice(0,80))}</em>`:""}${p.approx?"<br/><em>approx pin</em>":""}<br/><a href="${mapsLinks(p).apple}" target="_blank" rel="noopener noreferrer">Apple Maps</a> · <a href="${mapsLinks(p).google}" target="_blank" rel="noopener noreferrer">Google Maps</a>`;
         if (existing) {
           existing.setIcon(icon);
           existing.setPopupContent(html);
