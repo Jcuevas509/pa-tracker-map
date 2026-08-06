@@ -1038,8 +1038,8 @@
             ${preview}
             <div class="actions">
               <button type="button" data-act="route">${inRoute ? "Remove stop" : "Add to path"}</button>
-              <a class="maps-apple" href="${links.apple}" target="_blank" rel="noopener" aria-label="Apple Maps directions">Apple Maps</a>
-              <a class="maps-google" href="${links.google}" target="_blank" rel="noopener" aria-label="Google Maps directions">Google Maps</a>
+              <a class="maps-apple" href="${links.apple}" target="_blank" rel="noopener noreferrer" data-maps-link="1" aria-label="Apple Maps directions">Apple Maps</a>
+              <a class="maps-google" href="${links.google}" target="_blank" rel="noopener noreferrer" data-maps-link="1" aria-label="Google Maps directions">Google Maps</a>
             </div>
             <div class="note-box">
               <label class="note-meta" for="note-${p.id}">Notes ${syncEnabled ? "(shared live)" : "(on this device until you set up sharing)"}</label>
@@ -1055,6 +1055,13 @@
           if (e.target.closest("[data-act='route']")) {
             e.stopPropagation();
             toggleRoute(id);
+            return;
+          }
+          const mapsLink = e.target.closest("a[data-maps-link]");
+          if (mapsLink) {
+            e.preventDefault();
+            e.stopPropagation();
+            window.open(mapsLink.href, "_blank", "noopener,noreferrer");
             return;
           }
           if (e.target.closest("a") || e.target.closest("textarea") || e.target.closest("select") || e.target.closest(".note-box")) return;
