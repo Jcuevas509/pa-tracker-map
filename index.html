@@ -1,0 +1,1075 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>PA Tracker Map</title>
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+  <style>
+    :root {
+      --bg: #0f1419;
+      --panel: #1a222c;
+      --panel-2: #232d39;
+      --border: #2f3b49;
+      --text: #e8eef4;
+      --muted: #93a1b0;
+      --accent: #3d9cf0;
+      --signed: #3ecf8e;
+      --permits: #f0b429;
+      --me: #ff6b6b;
+      --danger: #ef5f67;
+    }
+    * { box-sizing: border-box; }
+    html, body { height: 100%; margin: 0; }
+    body {
+      font-family: "Segoe UI", system-ui, -apple-system, sans-serif;
+      background: var(--bg);
+      color: var(--text);
+      display: grid;
+      grid-template-columns: minmax(320px, 400px) 1fr;
+      grid-template-rows: auto 1fr;
+      height: 100vh;
+    }
+    header {
+      grid-column: 1 / -1;
+      display: flex;
+      flex-wrap: wrap;
+      gap: 10px;
+      align-items: center;
+      padding: 12px 16px;
+      background: var(--panel);
+      border-bottom: 1px solid var(--border);
+    }
+    header h1 {
+      margin: 0;
+      font-size: 1.05rem;
+      font-weight: 650;
+      letter-spacing: 0.02em;
+    }
+    header .spacer { flex: 1; }
+    .btn {
+      border: 1px solid var(--border);
+      background: var(--panel-2);
+      color: var(--text);
+      border-radius: 8px;
+      padding: 8px 12px;
+      font-size: 0.85rem;
+      cursor: pointer;
+    }
+    .btn:hover { border-color: var(--accent); }
+    .btn.primary { background: var(--accent); border-color: var(--accent); color: #041018; font-weight: 600; }
+    .btn.danger { border-color: var(--danger); color: #ffd4d6; }
+    .btn.live { background: #2a4a3a; border-color: var(--signed); color: var(--signed); font-weight: 600; }
+    .btn:disabled { opacity: 0.45; cursor: not-allowed; }
+    .chip {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      border: 1px solid var(--border);
+      border-radius: 999px;
+      padding: 6px 10px;
+      font-size: 0.8rem;
+      color: var(--muted);
+      user-select: none;
+      cursor: pointer;
+      background: transparent;
+    }
+    .chip input { accent-color: var(--accent); }
+    .chip.on-signed { color: var(--signed); border-color: color-mix(in srgb, var(--signed) 40%, var(--border)); }
+    .chip.on-permits { color: var(--permits); border-color: color-mix(in srgb, var(--permits) 40%, var(--border)); }
+    aside {
+      display: flex;
+      flex-direction: column;
+      min-height: 0;
+      border-right: 1px solid var(--border);
+      background: var(--panel);
+    }
+    .toolbar {
+      padding: 10px 12px;
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+      border-bottom: 1px solid var(--border);
+    }
+    .toolbar input[type="search"] {
+      width: 100%;
+      border: 1px solid var(--border);
+      background: var(--bg);
+      color: var(--text);
+      border-radius: 8px;
+      padding: 9px 11px;
+      font-size: 0.9rem;
+    }
+    .row { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
+    .meta { font-size: 0.78rem; color: var(--muted); }
+    .list {
+      overflow: auto;
+      flex: 1;
+      padding: 8px;
+    }
+    .card {
+      border: 1px solid var(--border);
+      background: var(--panel-2);
+      border-radius: 10px;
+      padding: 10px 11px;
+      margin-bottom: 8px;
+      cursor: pointer;
+    }
+    .card:hover { border-color: var(--accent); }
+    .card.active { outline: 2px solid var(--accent); }
+    .card.route-pick { border-color: #8b5cf6; background: #2a2240; }
+    .card-top {
+      display: flex;
+      justify-content: space-between;
+      gap: 8px;
+      align-items: flex-start;
+    }
+    .name { font-weight: 650; font-size: 0.95rem; }
+    .dist {
+      font-variant-numeric: tabular-nums;
+      font-size: 0.82rem;
+      color: var(--accent);
+      white-space: nowrap;
+      text-align: right;
+      line-height: 1.25;
+    }
+    .dist .mins { display: block; font-weight: 650; font-size: 0.9rem; color: var(--text); }
+    .dist .mi { display: block; font-size: 0.72rem; color: var(--muted); }
+    .addr { font-size: 0.8rem; color: var(--muted); margin-top: 4px; line-height: 1.35; }
+    .tags { display: flex; flex-wrap: wrap; gap: 5px; margin-top: 7px; }
+    .tag {
+      font-size: 0.7rem;
+      border-radius: 999px;
+      padding: 2px 8px;
+      border: 1px solid var(--border);
+      color: var(--muted);
+    }
+    .tag.signed { color: var(--signed); border-color: color-mix(in srgb, var(--signed) 45%, transparent); }
+    .tag.permits { color: var(--permits); border-color: color-mix(in srgb, var(--permits) 45%, transparent); }
+    .tag.warn { color: #ffb86b; }
+    .actions { display: flex; gap: 6px; margin-top: 8px; flex-wrap: wrap; }
+    .actions a, .actions button {
+      font-size: 0.75rem;
+      text-decoration: none;
+      color: var(--text);
+      border: 1px solid var(--border);
+      background: var(--bg);
+      border-radius: 6px;
+      padding: 4px 8px;
+      cursor: pointer;
+    }
+    .actions a.maps-apple { border-color: #5ac8fa; color: #9adfff; }
+    .actions a.maps-google { border-color: #34a853; color: #8fdbab; }
+    .note-preview {
+      margin-top: 7px;
+      font-size: 0.78rem;
+      color: #c9b27c;
+      line-height: 1.35;
+      white-space: pre-wrap;
+    }
+    .note-box {
+      display: none;
+      margin-top: 8px;
+      gap: 6px;
+      flex-direction: column;
+    }
+    .card.active .note-box,
+    .card.note-open .note-box { display: flex; }
+    .note-box textarea {
+      width: 100%;
+      min-height: 72px;
+      resize: vertical;
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      background: var(--bg);
+      color: var(--text);
+      padding: 8px 10px;
+      font: inherit;
+      font-size: 0.85rem;
+    }
+    .note-box .note-meta { font-size: 0.72rem; color: var(--muted); }
+    #map { height: 100%; width: 100%; background: #101820; }
+    .leaflet-container { background: #101820; font: inherit; }
+    .status { display: none; }
+    .map-wrap { position: relative; min-height: 0; }
+    .map-toggle {
+      display: none;
+      position: absolute;
+      z-index: 1100;
+      left: 10px;
+      bottom: 10px;
+      border: 1px solid var(--border);
+      background: rgba(26,34,44,0.95);
+      color: var(--text);
+      border-radius: 999px;
+      padding: 10px 14px;
+      font-size: 0.85rem;
+      font-weight: 600;
+      cursor: pointer;
+      box-shadow: 0 4px 16px rgba(0,0,0,.35);
+    }
+    .legend {
+      position: absolute;
+      z-index: 1000;
+      right: 12px;
+      bottom: 12px;
+      background: rgba(26,34,44,0.95);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 8px 10px;
+      font-size: 0.75rem;
+      color: var(--muted);
+    }
+    .legend span { display: inline-block; width: 10px; height: 10px; border-radius: 50%; margin-right: 6px; }
+    .route-bar {
+      padding: 10px 12px;
+      border-top: 1px solid var(--border);
+      background: #171e27;
+      display: none;
+      flex-direction: column;
+      gap: 8px;
+    }
+    .route-bar.show { display: flex; }
+    .route-stops { font-size: 0.8rem; color: var(--muted); max-height: 72px; overflow: auto; }
+    #btnMapToggleHeader { display: none; }
+    @media (max-width: 860px) {
+      body {
+        grid-template-columns: 1fr;
+        grid-template-rows: auto minmax(160px, 28vh) minmax(0, 1fr);
+      }
+      header {
+        padding: 8px 10px;
+        gap: 6px;
+      }
+      header h1 { font-size: 0.95rem; }
+      .btn { padding: 7px 10px; font-size: 0.8rem; }
+      .map-wrap { order: 0; min-height: 0; }
+      .map-toggle, #btnMapToggleHeader { display: inline-flex; align-items: center; }
+      aside {
+        order: 1;
+        border-right: 0;
+        border-top: 1px solid var(--border);
+        min-height: 55vh;
+        max-height: none;
+      }
+      aside .toolbar { padding: 8px 10px; gap: 6px; }
+      aside .list {
+        -webkit-overflow-scrolling: touch;
+        overscroll-behavior: contain;
+        padding-bottom: 24px;
+      }
+      .card { padding: 12px 12px; margin-bottom: 10px; }
+      .legend { display: none; }
+
+      body.map-expanded {
+        grid-template-rows: auto minmax(0, 1fr) 0;
+      }
+      body.map-expanded aside {
+        display: none;
+      }
+      body.map-expanded .map-wrap {
+        min-height: 0;
+      }
+      body.map-expanded .map-toggle {
+        bottom: 18px;
+        left: 50%;
+        transform: translateX(-50%);
+        padding: 12px 18px;
+      }
+    }
+  </style>
+</head>
+<body>
+  <header>
+    <h1>PA Tracker Map</h1>
+    <label class="chip on-signed"><input type="checkbox" id="showSigned" checked /> Signed Jobs</label>
+    <label class="chip on-permits"><input type="checkbox" id="showPermits" checked /> Permits</label>
+    <div class="spacer"></div>
+    <button class="btn" id="btnMapToggleHeader" type="button" aria-pressed="false">Expand map</button>
+    <button class="btn" id="btnLocate" type="button" aria-pressed="false">Follow me</button>
+    <button class="btn" id="btnNearest" type="button" disabled>Build nearest path</button>
+    <button class="btn primary" id="btnMaps" type="button" disabled>Open in Google Maps</button>
+    <button class="btn danger" id="btnClearRoute" type="button">Clear route</button>
+  </header>
+
+  <aside>
+    <div class="toolbar">
+      <input type="search" id="search" placeholder="Search name, city, phone…" aria-label="Search people" />
+      <div class="row">
+        <span class="meta" id="summary"></span>
+        <select id="sortBy" class="btn" aria-label="Sort list" style="margin-left:auto">
+          <option value="name">Sort: Name</option>
+          <option value="distance">Sort: Time / Distance</option>
+          <option value="section">Sort: Section</option>
+        </select>
+      </div>
+      <div class="meta">Tap a person to add notes (saved on this phone). Expand map for a bigger view.</div>
+    </div>
+    <div class="list" id="list" role="list"></div>
+    <div class="route-bar" id="routeBar">
+      <strong style="font-size:0.85rem">Route stops</strong>
+      <div class="route-stops" id="routeStops"></div>
+      <div class="row">
+        <span class="meta" id="routeMeta"></span>
+      </div>
+    </div>
+  </aside>
+
+  <div class="map-wrap">
+    <div id="map" role="application" aria-label="Map of PA tracker locations"></div>
+    <div class="status" id="status" aria-hidden="true"></div>
+    <button class="map-toggle" id="btnMapToggle" type="button" aria-pressed="false">Expand map</button>
+    <div class="legend">
+      <div><span style="background:var(--signed)"></span>Signed</div>
+      <div><span style="background:var(--permits)"></span>Permits</div>
+      <div><span style="background:var(--me)"></span>You</div>
+      <div><span style="background:#8b5cf6"></span>Route stop</div>
+    </div>
+  </div>
+
+  <script>
+    const PEOPLE = [{"id":1,"name":"Richard Iademarco","address":"4127 Oliver Ln, Boothwyn, PA 19061","phone":"(610) 331-0112","email":"ri111@yahoo.com","section":"signed","jurisdiction":"","product":"","permitSubmitted":"","scheduleDate":"","lat":39.8468021,"lng":-75.4429387,"approx":false},{"id":2,"name":"Sean Jackson","address":"314 Knight Rd, Ambler, PA 19002","phone":"(856) 264-7965","email":"lxxvii.xliv@gmail.com","section":"signed","jurisdiction":"PA-BOROUGH AMBLER","product":"","permitSubmitted":"","scheduleDate":"","lat":40.1631675,"lng":-75.2264202,"approx":false},{"id":3,"name":"Marcos Deveaux","address":"216 Pennsylvania Ave, Bangor, PA 18013","phone":"(908) 759-9975","email":"mdx6979@gmail.com","section":"signed","jurisdiction":"PA-BOROUGH BANGOR","product":"","permitSubmitted":"","scheduleDate":"","lat":40.868807,"lng":-75.2083518,"approx":false},{"id":4,"name":"Albert Nelson","address":"247 Roosevelt St, Bristol, PA 19007","phone":"(267) 210-2856","email":"anelson159@aol.com","section":"signed","jurisdiction":"PA-BOROUGH BRISTOL","product":"","permitSubmitted":"","scheduleDate":"","lat":40.1110201,"lng":-74.8412873,"approx":false},{"id":5,"name":"William Haupt","address":"32 S Mill St, Cleona, PA 17042","phone":"(717) 673-3547","email":"etownwilliam@comcast.net","section":"signed","jurisdiction":"PA-BOROUGH CLEONA","product":"","permitSubmitted":"","scheduleDate":"","lat":40.3351342,"lng":-76.483899,"approx":false},{"id":6,"name":"BRIAN Reed","address":"621 Plane St, Columbia, PA 17512","phone":"(717) 808-0912","email":"dizzastaman@gmail.com","section":"signed","jurisdiction":"PA-BOROUGH COLUMBIA","product":"","permitSubmitted":"","scheduleDate":"","lat":40.0283518,"lng":-76.4926564,"approx":false},{"id":7,"name":"Karen Haynes","address":"21 S 14th St, Darby, PA 19023","phone":"(301) 237-1054","email":"k.evadney@gmail.com","section":"signed","jurisdiction":"PA-BOROUGH DARBY","product":"","permitSubmitted":"","scheduleDate":"","lat":39.9236169,"lng":-75.2667411,"approx":false},{"id":8,"name":"Abda Sey","address":"918 Hedgewyck Ln, Elizabethtown, PA 17022","phone":"(717) 623-1121","email":"seymalickk@gmail.com","section":"signed","jurisdiction":"PA-BOROUGH ELIZABETHTOWN","product":"","permitSubmitted":"","scheduleDate":"","lat":40.1688913,"lng":-76.6009048,"approx":false},{"id":9,"name":"Frank McDermott","address":"988 Taylor Dr, Folcroft, PA 19032","phone":"(610) 574-2706","email":"fmcdermottmail@yahoo.com","section":"signed","jurisdiction":"PA-BOROUGH FOLCROFT","product":"","permitSubmitted":"","scheduleDate":"","lat":39.8830687,"lng":-75.2852266,"approx":false},{"id":10,"name":"Renae Rutherford Lowe","address":"505 Tatnall Ave, Glenolden, PA 19036","phone":"(215) 620-8414","email":"rrutherfordlowe@comcast.net","section":"signed","jurisdiction":"PA-BOROUGH GLENOLDEN","product":"","permitSubmitted":"","scheduleDate":"","lat":39.8979364,"lng":-75.3017469,"approx":false},{"id":11,"name":"Erik Mann","address":"24 Farmington Dr, Jacobus, PA 17407","phone":"(717) 668-5329","email":"forevermyboys55@yahoo.com","section":"signed","jurisdiction":"PA-BOROUGH JACOBUS","product":"","permitSubmitted":"","scheduleDate":"","lat":39.8808973,"lng":-76.7220358,"approx":false},{"id":12,"name":"Justin Bruce","address":"226 Rose Ln, Jonestown, PA 17038","phone":"(717) 512-3488","email":"justin.alan.bruce@gmail.com","section":"signed","jurisdiction":"PA-BOROUGH JONESTOWN","product":"","permitSubmitted":"","scheduleDate":"","lat":40.4177077,"lng":-76.4817668,"approx":false},{"id":13,"name":"Paul Danczyk","address":"231 Meredith St, Kennett Square, PA 19348","phone":"(916) 716-3787","email":"pdanczyk@yahoo.com","section":"signed","jurisdiction":"PA-BOROUGH KENNETT SQUARE","product":"","permitSubmitted":"","scheduleDate":"","lat":39.8442999,"lng":-75.7139607,"approx":false},{"id":14,"name":"Joe Maingi","address":"69 Eldon Ave, Lansdowne, PA 19050","phone":"(717) 341-2546","email":"jkmaingi@msn.com","section":"signed","jurisdiction":"PA-BOROUGH LANSDOWNE","product":"","permitSubmitted":"","scheduleDate":"","lat":39.9379125,"lng":-75.2828974,"approx":false},{"id":15,"name":"Sheila Warner","address":"421 Chestnut St, Marysville, PA 17053","phone":"(717) 957-2281","email":"swarner421@comcast.net","section":"signed","jurisdiction":"PA-BOROUGH MARYSVILLE","product":"","permitSubmitted":"","scheduleDate":"","lat":40.3433881,"lng":-76.9347429,"approx":false},{"id":16,"name":"Michael Voegtle","address":"446 S Front St, Milton, PA 17847","phone":"(570) 850-6616","email":"voegtlemichael48@gmail.com","section":"signed","jurisdiction":"PA-BOROUGH MILTON","product":"","permitSubmitted":"","scheduleDate":"","lat":41.01378,"lng":-76.859931,"approx":false},{"id":17,"name":"Sharlyne Charlesbarjon","address":"245 Althea Ave, Morrisville, PA 19067","phone":"(267) 795-7991","email":"sharlyne.cb@gmail.com","section":"signed","jurisdiction":"PA-BOROUGH MORRISVILLE","product":"","permitSubmitted":"","scheduleDate":"","lat":40.2035197,"lng":-74.7924771,"approx":false},{"id":18,"name":"Sandra Fortunato","address":"107 S Lafayette Ave, Morrisville, PA 19067","phone":"(508) 527-1565","email":"shep1912@gmail.com","section":"signed","jurisdiction":"PA-BOROUGH MORRISVILLE","product":"","permitSubmitted":"","scheduleDate":"","lat":40.2050174,"lng":-74.778621,"approx":false},{"id":19,"name":"Winsome Grenyionsmith","address":"1205 W Elm St, Norristown, PA 19401","phone":"(267) 318-5672","email":"summernilezaire@gmail.com","section":"signed","jurisdiction":"PA-BOROUGH NORRISTOWN","product":"","permitSubmitted":"","scheduleDate":"","lat":40.1276116,"lng":-75.3538452,"approx":false},{"id":20,"name":"Brittany Johnson","address":"911 Lake Ln, Pennsburg, PA 18073","phone":"(908) 353-5855","email":"kbd.finances@gmail.com","section":"signed","jurisdiction":"PA-BOROUGH PENNSBURG","product":"","permitSubmitted":"","scheduleDate":"","lat":40.3861177,"lng":-75.4944168,"approx":false},{"id":21,"name":"Martha Kirina","address":"512 Church St, Royersford, PA 19468","phone":"(267) 471-5722","email":"marthakirina@hotmail.com","section":"signed","jurisdiction":"PA-BOROUGH ROYERSFORD","product":"","permitSubmitted":"","scheduleDate":"","lat":40.1875562,"lng":-75.5383408,"approx":false},{"id":22,"name":"Mohamed Idriss","address":"532 Fern St, Yeadon, PA 19050","phone":"(267) 530-8854","email":"ngormohamed@gmail.com","section":"signed","jurisdiction":"PA-BOROUGH YEADON","product":"","permitSubmitted":"","scheduleDate":"","lat":39.9390909,"lng":-75.2502882,"approx":false},{"id":23,"name":"Mariatu Momoh","address":"947 Church Ln, Yeadon, PA 19050","phone":"(610) 809-1932","email":"mmomoh195@yahoo.com","section":"signed","jurisdiction":"PA-BOROUGH YEADON","product":"","permitSubmitted":"","scheduleDate":"","lat":39.9292335,"lng":-75.2470336,"approx":false},{"id":24,"name":"Miriam Rodriguez","address":"140 Red Maple Rd, Lancaster, PA 17602","phone":"(717) 715-2733","email":"louierod024@yahoo.com","section":"signed","jurisdiction":"PA-CITY LANCASTER","product":"","permitSubmitted":"","scheduleDate":"","lat":40.0286014,"lng":-76.2797903,"approx":false},{"id":25,"name":"Sandra Joy","address":"1525 N Woodland Ave, Folcroft, PA 19032","phone":"(302) 545-7023","email":"joy@rowan.edu","section":"permits","jurisdiction":"","product":"Solar","permitSubmitted":"8/3/2026","scheduleDate":"-","lat":39.9005526,"lng":-75.279725,"approx":true},{"id":26,"name":"Carolyn Moseley","address":"8415 Lyons Pl, Philadelphia, PA 19153","phone":"(215) 284-9322","email":"moseleycmose@gmail.com","section":"permits","jurisdiction":"","product":"Solar","permitSubmitted":"7/30/2026","scheduleDate":"8/28/2026","lat":39.895481,"lng":-75.2504211,"approx":false},{"id":27,"name":"Frank Obrien","address":"814 Fairview Ave, Bristol, PA 19007","phone":"(267) 442-8382","email":"frankobrien589@gmail.com","section":"permits","jurisdiction":"","product":"Solar","permitSubmitted":"7/30/2026","scheduleDate":"9/29/2026","lat":40.107858,"lng":-74.8659855,"approx":false},{"id":28,"name":"Jeffrey Dicesare","address":"359 Holly Dr, Levittown, PA 19055","phone":"(215) 901-9299","email":"dicesarej70@gmail.com","section":"permits","jurisdiction":"","product":"Solar + Storage","permitSubmitted":"8/1/2026","scheduleDate":"-","lat":40.1634391,"lng":-74.8385533,"approx":false},{"id":29,"name":"Matthew DosSantos","address":"5704 Atkins Ave, Bristol, PA 19007","phone":"(917) 891-3778","email":"matthewdossantos@yahoo.com","section":"permits","jurisdiction":"","product":"Solar","permitSubmitted":"7/30/2026","scheduleDate":"-","lat":40.1185065,"lng":-74.8503149,"approx":false},{"id":30,"name":"Marlin Williams","address":"5801 Beaver Dam Rd, Bristol, PA 19007","phone":"(215) 932-7038","email":"marlinwilliams9141@comcast.net","section":"permits","jurisdiction":"","product":"Solar","permitSubmitted":"7/31/2026","scheduleDate":"-","lat":40.119911,"lng":-74.849781,"approx":false},{"id":31,"name":"Grant Menard","address":"3723 Green Ridge Rd, Furlong, PA 18925","phone":"(267) 614-6809","email":"gmenard334@yahoo.com","section":"permits","jurisdiction":"","product":"Solar + Storage","permitSubmitted":"7/28/2026","scheduleDate":"-","lat":40.3025061,"lng":-75.0715911,"approx":false},{"id":32,"name":"Jason Hemmerich","address":"2922 Stoney Creek Rd, East Norriton Township, PA 19401","phone":"(267) 245-3484","email":"hemmerichjason@gmail.com","section":"permits","jurisdiction":"","product":"Solar","permitSubmitted":"7/28/2026","scheduleDate":"-","lat":40.1515458,"lng":-75.3369496,"approx":true},{"id":33,"name":"Steven Kleiman","address":"1269 Belgrave Crescent, Yardley, PA 19067","phone":"(908) 930-2402","email":"kleiman_steven@yahoo.com","section":"permits","jurisdiction":"","product":"Solar + Storage","permitSubmitted":"8/1/2026","scheduleDate":"-","lat":40.2351274,"lng":-74.8309913,"approx":true},{"id":34,"name":"Debra Canale","address":"1004 Beechwood Pl, Warminster, PA 18974","phone":"(215) 939-6530","email":"debrockz@verizon.net","section":"permits","jurisdiction":"","product":"Solar","permitSubmitted":"7/30/2026","scheduleDate":"9/21/2026","lat":40.2067751,"lng":-75.0996159,"approx":true}];
+
+    const state = {
+      me: null,
+      selectedId: null,
+      routeIds: [],
+      markers: new Map(),
+      meMarker: null,
+      accuracyCircle: null,
+      routeLine: null,
+      watchId: null,
+      following: false,
+      followMap: true,
+      bestAccuracy: Infinity,
+      samples: [],
+      locked: false,
+      startedAt: 0,
+      forceLockTimer: null,
+      driveTimes: new Map(), // id -> { minutes, driveMiles, source }
+      driveFetchKey: null,
+      driveFetchTimer: null,
+      lastListRefreshAt: 0,
+      lastStatusAt: 0,
+    };
+
+    const map = L.map("map", { zoomControl: true }).setView([40.15, -75.4], 9);
+    L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
+      maxZoom: 19,
+      attribution: "&copy; OpenStreetMap",
+    }).addTo(map);
+
+    const statusEl = document.getElementById("status");
+    // Status banner removed to save space; keep no-op for call sites / rare debug
+    const setStatus = (_msg) => {};
+
+    const NOTES_KEY = "pa-tracker-notes-v1";
+    const loadNotes = () => {
+      try { return JSON.parse(localStorage.getItem(NOTES_KEY) || "{}") || {}; }
+      catch { return {}; }
+    };
+    const saveNotes = (notes) => {
+      localStorage.setItem(NOTES_KEY, JSON.stringify(notes));
+    };
+    let notesById = loadNotes();
+
+    const escapeHtml = (s) =>
+      String(s).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+
+    // used in renderList preview
+    const notePreviewHtml = (note) =>
+      escapeHtml(note.slice(0, 140)) + (note.length > 140 ? "…" : "");
+
+    const toRad = (d) => (d * Math.PI) / 180;
+    const milesBetween = (a, b) => {
+      if (!a || !b || a.lat == null || b.lat == null) return null;
+      const R = 3958.7613;
+      const dLat = toRad(b.lat - a.lat);
+      const dLng = toRad(b.lng - a.lng);
+      const lat1 = toRad(a.lat);
+      const lat2 = toRad(b.lat);
+      const h =
+        Math.sin(dLat / 2) ** 2 +
+        Math.cos(lat1) * Math.cos(lat2) * Math.sin(dLng / 2) ** 2;
+      return 2 * R * Math.asin(Math.sqrt(h));
+    };
+
+    const fmtMiles = (m) => (m == null ? "—" : m < 10 ? `${m.toFixed(1)} mi` : `${Math.round(m)} mi`);
+    const fmtMins = (mins) => {
+      if (mins == null || !Number.isFinite(mins)) return null;
+      const m = Math.max(1, Math.round(mins));
+      if (m < 60) return `${m} min`;
+      const h = Math.floor(m / 60);
+      const r = m % 60;
+      return r ? `${h}h ${r}m` : `${h}h`;
+    };
+
+    // Rough fallback until road ETA loads (road ≈ 1.3× straight-line, ~28 mph mixed)
+    const estimateDriveMinutes = (straightMiles) => {
+      if (straightMiles == null) return null;
+      return (straightMiles * 1.3 / 28) * 60;
+    };
+
+    const getEta = (person) => {
+      const cached = state.driveTimes.get(person.id);
+      if (cached) return cached;
+      if (!state.me) return null;
+      const straight = milesBetween(state.me, person);
+      const minutes = estimateDriveMinutes(straight);
+      return minutes == null ? null : { minutes, driveMiles: straight * 1.3, source: "estimate" };
+    };
+
+    const fmtDistBlock = (person) => {
+      if (!state.me) return "—";
+      const straight = milesBetween(state.me, person);
+      const eta = getEta(person);
+      const minsLabel = eta ? fmtMins(eta.minutes) : null;
+      const miLabel = eta?.source === "osrm" && eta.driveMiles != null
+        ? fmtMiles(eta.driveMiles)
+        : fmtMiles(straight);
+      const approx = eta?.source === "estimate" ? "~" : "";
+      return `<span class="mins">${minsLabel ? approx + minsLabel : "…"}</span><span class="mi">${miLabel}</span>`;
+    };
+
+    const mapsLinks = (p) => {
+      // Use the street address (not our map pin coords). Apple/Google geocode
+      // house numbers much more accurately than Nominatim pins.
+      const destAddr = encodeURIComponent(p.address);
+      const apple = `https://maps.apple.com/?daddr=${destAddr}&dirflg=d`;
+      const google = `https://www.google.com/maps/dir/?api=1&destination=${destAddr}&travelmode=driving`;
+      return { apple, google };
+    };
+
+    const fetchDriveTimes = async () => {
+      if (!state.me) return;
+      const key = `${state.me.lat.toFixed(4)},${state.me.lng.toFixed(4)}`;
+      if (state.driveFetchKey === key && state.driveTimes.size) return;
+      state.driveFetchKey = key;
+
+      const people = PEOPLE.filter((p) => p.lat != null && p.lng != null);
+      // OSRM table: source first, then all destinations
+      const coords = [
+        `${state.me.lng},${state.me.lat}`,
+        ...people.map((p) => `${p.lng},${p.lat}`),
+      ].join(";");
+      const url = `https://router.project-osrm.org/table/v1/driving/${coords}?sources=0&annotations=duration,distance`;
+
+      try {
+        const res = await fetch(url);
+        if (!res.ok) throw new Error(`OSRM ${res.status}`);
+        const data = await res.json();
+        if (data.code !== "Ok" || !data.durations?.[0]) throw new Error("OSRM bad payload");
+        const durations = data.durations[0];
+        const distances = data.distances?.[0] || [];
+        people.forEach((p, i) => {
+          const sec = durations[i + 1];
+          const meters = distances[i + 1];
+          if (sec == null || !Number.isFinite(sec)) return;
+          state.driveTimes.set(p.id, {
+            minutes: sec / 60,
+            driveMiles: meters != null ? meters / 1609.344 : null,
+            source: "osrm",
+          });
+        });
+        renderList();
+        refreshMarkers();
+      } catch (err) {
+        console.warn("Drive ETA fetch failed, using estimates", err);
+      }
+    };
+
+    const scheduleDriveFetch = () => {
+      if (state.driveFetchTimer) clearTimeout(state.driveFetchTimer);
+      // Debounce while GPS moves
+      state.driveFetchTimer = setTimeout(() => {
+        state.driveTimes.clear();
+        state.driveFetchKey = null;
+        fetchDriveTimes();
+      }, 1200);
+    };
+
+    const colorFor = (p) => (p.section === "permits" ? "#f0b429" : "#3ecf8e");
+
+    const makeIcon = (color, selected=false) =>
+      L.divIcon({
+        className: "",
+        html: `<div style="width:${selected?16:12}px;height:${selected?16:12}px;border-radius:50%;background:${color};border:2px solid #fff;box-shadow:0 0 0 2px rgba(0,0,0,.35)"></div>`,
+        iconSize: [selected?16:12, selected?16:12],
+        iconAnchor: [selected?8:6, selected?8:6],
+      });
+
+    const visiblePeople = () => {
+      const showSigned = document.getElementById("showSigned").checked;
+      const showPermits = document.getElementById("showPermits").checked;
+      const q = document.getElementById("search").value.trim().toLowerCase();
+      return PEOPLE.filter((p) => {
+        if (p.section === "signed" && !showSigned) return false;
+        if (p.section === "permits" && !showPermits) return false;
+        if (!q) return true;
+        const hay = `${p.name} ${p.address} ${p.phone} ${p.email} ${p.jurisdiction} ${p.product}`.toLowerCase();
+        return hay.includes(q);
+      });
+    };
+
+    const sortedPeople = () => {
+      const list = [...visiblePeople()];
+      const sortBy = document.getElementById("sortBy").value;
+      list.sort((a, b) => {
+        if (sortBy === "distance" && state.me) {
+          const ea = getEta(a)?.minutes ?? milesBetween(state.me, a) ?? 1e9;
+          const eb = getEta(b)?.minutes ?? milesBetween(state.me, b) ?? 1e9;
+          return ea - eb;
+        }
+        if (sortBy === "section") {
+          return a.section.localeCompare(b.section) || a.name.localeCompare(b.name);
+        }
+        return a.name.localeCompare(b.name);
+      });
+      return list;
+    };
+
+    const personById = (id) => PEOPLE.find((p) => p.id === id);
+
+    const updateRouteUI = () => {
+      const bar = document.getElementById("routeBar");
+      const stopsEl = document.getElementById("routeStops");
+      const meta = document.getElementById("routeMeta");
+      const has = state.routeIds.length > 0;
+      bar.classList.toggle("show", has);
+      document.getElementById("btnMaps").disabled = !has;
+      document.getElementById("btnNearest").disabled = !state.me;
+
+      if (!has) {
+        if (state.routeLine) { map.removeLayer(state.routeLine); state.routeLine = null; }
+        return;
+      }
+
+      const stops = state.routeIds.map(personById).filter(Boolean);
+      let total = 0;
+      const lines = [];
+      let prev = state.me;
+      stops.forEach((s, i) => {
+        const leg = prev ? milesBetween(prev, s) : null;
+        if (leg != null) total += leg;
+        lines.push(`${i + 1}. ${s.name}${leg != null ? ` (${fmtMiles(leg)} from prev)` : ""}`);
+        prev = s;
+      });
+      stopsEl.textContent = lines.join(" · ");
+      meta.textContent = `${stops.length} stop${stops.length === 1 ? "" : "s"} · ~${fmtMiles(total)} path (straight-line)`;
+
+      const latlngs = [];
+      if (state.me) latlngs.push([state.me.lat, state.me.lng]);
+      stops.forEach((s) => latlngs.push([s.lat, s.lng]));
+      if (state.routeLine) map.removeLayer(state.routeLine);
+      state.routeLine = L.polyline(latlngs, { color: "#8b5cf6", weight: 3, opacity: 0.85, dashArray: "6 6" }).addTo(map);
+    };
+
+    const toggleRoute = (id) => {
+      const idx = state.routeIds.indexOf(id);
+      if (idx >= 0) state.routeIds.splice(idx, 1);
+      else state.routeIds.push(id);
+      renderList();
+      refreshMarkers();
+      updateRouteUI();
+    };
+
+    const focusPerson = (id) => {
+      state.selectedId = id;
+      const p = personById(id);
+      if (p) map.setView([p.lat, p.lng], Math.max(map.getZoom(), 12), { animate: true });
+      renderList();
+      refreshMarkers();
+    };
+
+    const renderList = () => {
+      const list = document.getElementById("list");
+      const activeTa = document.activeElement?.matches?.("textarea[data-note-id]")
+        ? document.activeElement
+        : null;
+      if (activeTa) {
+        // Don't wipe the note field while typing; ETAs can wait
+        notesById[String(activeTa.getAttribute("data-note-id"))] = activeTa.value;
+        saveNotes(notesById);
+        return;
+      }
+      const scrollTop = list.scrollTop;
+      const people = sortedPeople();
+      document.getElementById("summary").textContent =
+        `${people.length} shown` + (state.me ? ` · from your location` : "");
+
+      list.innerHTML = people.map((p) => {
+        const inRoute = state.routeIds.includes(p.id);
+        const active = state.selectedId === p.id;
+        const links = mapsLinks(p);
+        const note = getNote(p.id);
+        const preview = !active && note
+          ? `<div class="note-preview">${notePreviewHtml(note)}</div>`
+          : "";
+        return `
+          <article class="card ${active ? "active" : ""} ${inRoute ? "route-pick" : ""}" data-id="${p.id}" role="listitem" tabindex="0" aria-label="${p.name}">
+            <div class="card-top">
+              <div class="name">${p.name}</div>
+              <div class="dist">${fmtDistBlock(p)}</div>
+            </div>
+            <div class="addr">${p.address}${p.approx ? " (approx pin)" : ""}</div>
+            <div class="tags">
+              <span class="tag ${p.section}">${p.section === "permits" ? "Permits" : "Signed"}</span>
+              ${p.product ? `<span class="tag">${p.product}</span>` : ""}
+              ${p.scheduleDate && p.scheduleDate !== "-" ? `<span class="tag warn">Sched ${p.scheduleDate}</span>` : ""}
+              ${note ? `<span class="tag warn">Note</span>` : ""}
+              ${inRoute ? `<span class="tag">Stop #${state.routeIds.indexOf(p.id)+1}</span>` : ""}
+            </div>
+            ${preview}
+            <div class="actions">
+              <button type="button" data-act="route">${inRoute ? "Remove stop" : "Add to path"}</button>
+              <a class="maps-apple" href="${links.apple}" target="_blank" rel="noopener" aria-label="Apple Maps directions">Apple Maps</a>
+              <a class="maps-google" href="${links.google}" target="_blank" rel="noopener" aria-label="Google Maps directions">Google Maps</a>
+              ${p.phone ? `<a href="tel:${p.phone.replace(/[^\d+]/g,"")}">Call</a>` : ""}
+              ${p.email ? `<a href="mailto:${p.email}">Email</a>` : ""}
+            </div>
+            <div class="note-box">
+              <label class="note-meta" for="note-${p.id}">Notes (saved on this device)</label>
+              <textarea id="note-${p.id}" data-note-id="${p.id}" placeholder="Gate code, called left VM, best time…"></textarea>
+            </div>
+          </article>`;
+      }).join("");
+
+      list.querySelectorAll(".card").forEach((card) => {
+        const id = Number(card.dataset.id);
+        card.addEventListener("click", (e) => {
+          if (e.target.closest("[data-act='route']")) {
+            e.stopPropagation();
+            toggleRoute(id);
+            return;
+          }
+          if (e.target.closest("a") || e.target.closest("textarea") || e.target.closest(".note-box")) return;
+          focusPerson(id);
+        });
+        card.addEventListener("keydown", (e) => {
+          if (e.target.closest("textarea")) return;
+          if (e.key === "Enter" || e.key === " ") {
+            e.preventDefault();
+            focusPerson(id);
+          }
+        });
+      });
+
+      list.querySelectorAll("textarea[data-note-id]").forEach((ta) => {
+        const id = ta.getAttribute("data-note-id");
+        ta.value = notesById[String(id)] || "";
+        let timer = null;
+        ta.addEventListener("click", (e) => e.stopPropagation());
+        ta.addEventListener("input", () => {
+          notesById[String(id)] = ta.value;
+          clearTimeout(timer);
+          timer = setTimeout(() => saveNotes(notesById), 250);
+        });
+        ta.addEventListener("blur", () => {
+          notesById[String(id)] = ta.value;
+          saveNotes(notesById);
+          const card = ta.closest(".card");
+          if (!card) return;
+          const has = ta.value.trim().length > 0;
+          const tags = card.querySelector(".tags");
+          if (!tags) return;
+          const existing = [...tags.querySelectorAll(".tag")].find((t) => t.textContent === "Note");
+          if (has && !existing) {
+            const span = document.createElement("span");
+            span.className = "tag warn";
+            span.textContent = "Note";
+            tags.appendChild(span);
+          } else if (!has && existing) {
+            existing.remove();
+          }
+        });
+      });
+      list.scrollTop = scrollTop;
+    };
+
+    const refreshMarkers = () => {
+      const visible = new Set(visiblePeople().map((p) => p.id));
+      PEOPLE.forEach((p) => {
+        const existing = state.markers.get(p.id);
+        if (!visible.has(p.id)) {
+          if (existing) { map.removeLayer(existing); state.markers.delete(p.id); }
+          return;
+        }
+        const inRoute = state.routeIds.includes(p.id);
+        const selected = state.selectedId === p.id;
+        const color = inRoute ? "#8b5cf6" : colorFor(p);
+        const icon = makeIcon(color, selected || inRoute);
+        const dist = state.me ? milesBetween(state.me, p) : null;
+        const eta = getEta(p);
+        const etaLabel = eta ? `${eta.source === "estimate" ? "~" : ""}${fmtMins(eta.minutes)}` : null;
+        const html = `<strong>${p.name}</strong><br/>${p.address}<br/>${p.section}${etaLabel?`<br/>${etaLabel}`:""}${dist!=null?` · ${fmtMiles(dist)}`:""}${p.approx?"<br/><em>approx pin</em>":""}<br/><a href="${mapsLinks(p).apple}">Apple Maps</a> · <a href="${mapsLinks(p).google}">Google Maps</a>`;
+        if (existing) {
+          existing.setIcon(icon);
+          existing.setPopupContent(html);
+        } else {
+          const m = L.marker([p.lat, p.lng], { icon }).addTo(map);
+          m.bindPopup(html);
+          m.on("click", () => focusPerson(p.id));
+          state.markers.set(p.id, m);
+        }
+      });
+    };
+
+    const fitAll = () => {
+      const pts = visiblePeople().map((p) => [p.lat, p.lng]);
+      if (state.me) pts.push([state.me.lat, state.me.lng]);
+      if (!pts.length) return;
+      map.fitBounds(pts, { padding: [40, 40] });
+    };
+
+    const nearestNeighborPath = () => {
+      if (!state.me) return;
+      const remaining = visiblePeople().slice();
+      const path = [];
+      let cur = state.me;
+      while (remaining.length) {
+        remaining.sort((a, b) => (milesBetween(cur, a) ?? 1e9) - (milesBetween(cur, b) ?? 1e9));
+        const next = remaining.shift();
+        path.push(next.id);
+        cur = next;
+      }
+      state.routeIds = path;
+      document.getElementById("sortBy").value = "distance";
+      renderList();
+      refreshMarkers();
+      updateRouteUI();
+      setStatus(`Nearest-neighbor path built for ${path.length} stops (heuristic, not perfect).`);
+    };
+
+    const openGoogleMaps = () => {
+      const stops = state.routeIds.map(personById).filter(Boolean);
+      if (!stops.length) return;
+      // Google Maps directions: origin optional, waypoints, destination
+      const origin = state.me ? `${state.me.lat},${state.me.lng}` : "";
+      const destination = `${stops[stops.length - 1].lat},${stops[stops.length - 1].lng}`;
+      const middle = stops.slice(0, -1).map((s) => `${s.lat},${s.lng}`);
+      // Google allows max ~10 waypoints in URL for free maps
+      const limited = middle.slice(0, 8);
+      let url = `https://www.google.com/maps/dir/?api=1&destination=${encodeURIComponent(destination)}&travelmode=driving`;
+      if (origin) url += `&origin=${encodeURIComponent(origin)}`;
+      if (limited.length) url += `&waypoints=${encodeURIComponent(limited.join("|"))}`;
+      if (middle.length > 8) {
+        setStatus(`Opened first ${limited.length + 1} of ${stops.length} stops (Google Maps waypoint limit).`);
+      }
+      window.open(url, "_blank", "noopener");
+    };
+
+    const btnLocate = document.getElementById("btnLocate");
+    const GEO_OPTS = { enableHighAccuracy: true, maximumAge: 0, timeout: 15000 };
+    // MacBooks rarely get better than hundreds of meters (Wi‑Fi). Phones get ~5–50m GPS.
+    const GOOD_ACC_M = 50;
+    const OK_ACC_M = 250;
+    const ACQUIRE_MS = 4000;
+    const FORCE_LOCK_MS = 10000;
+
+    const fmtAccuracy = (meters) => {
+      if (meters == null || !Number.isFinite(meters)) return "";
+      if (meters >= 1609) return `±${(meters / 1609).toFixed(1)} mi`;
+      if (meters >= 100) return `±${Math.round(meters)} m`;
+      return `±${Math.round(meters)} m`;
+    };
+
+    const isLikelyDesktop = () => {
+      const ua = navigator.userAgent || "";
+      return /Macintosh|Windows NT|Linux/i.test(ua) && !/Mobile|Android|iPhone|iPad/i.test(ua);
+    };
+
+    const ensureMeMarker = () => {
+      if (state.meMarker) return state.meMarker;
+      state.meMarker = L.marker([0, 0], {
+        draggable: false,
+        title: "You",
+        icon: L.divIcon({
+          className: "",
+          html: `<div style="width:18px;height:18px;border-radius:50%;background:#ff6b6b;border:3px solid #fff;box-shadow:0 0 0 2px rgba(0,0,0,.4)"></div>`,
+          iconSize: [18, 18],
+          iconAnchor: [9, 9],
+        }),
+      });
+      state.meMarker.bindPopup("You are here");
+      return state.meMarker;
+    };
+
+    const paintMe = (lat, lng, acc) => {
+      const marker = ensureMeMarker();
+      if (!map.hasLayer(marker)) marker.addTo(map);
+      marker.setLatLng([lat, lng]);
+      marker.setPopupContent(`You are here<br/><small>${fmtAccuracy(acc)}</small>`);
+
+      if (!state.accuracyCircle) {
+        state.accuracyCircle = L.circle([lat, lng], {
+          radius: Math.max(acc || 30, 15),
+          color: acc > OK_ACC_M ? "#f0b429" : "#ff6b6b",
+          weight: 1,
+          fillColor: acc > OK_ACC_M ? "#f0b429" : "#ff6b6b",
+          fillOpacity: 0.12,
+        }).addTo(map);
+      } else {
+        state.accuracyCircle.setLatLng([lat, lng]);
+        state.accuracyCircle.setRadius(Math.max(acc || 30, 15));
+        state.accuracyCircle.setStyle({
+          color: acc > OK_ACC_M ? "#f0b429" : "#ff6b6b",
+          fillColor: acc > OK_ACC_M ? "#f0b429" : "#ff6b6b",
+        });
+      }
+    };
+
+    const commitLocation = (sample, { center = false } = {}) => {
+      const wasEmpty = !state.me;
+      state.me = {
+        lat: sample.lat,
+        lng: sample.lng,
+        accuracy: sample.accuracy,
+        speed: sample.speed,
+        heading: sample.heading,
+        updatedAt: Date.now(),
+      };
+      if (sample.accuracy < state.bestAccuracy) state.bestAccuracy = sample.accuracy;
+
+      paintMe(sample.lat, sample.lng, sample.accuracy);
+      document.getElementById("btnNearest").disabled = false;
+
+      if (center || wasEmpty) {
+        document.getElementById("sortBy").value = "distance";
+        map.setView([sample.lat, sample.lng], Math.max(map.getZoom(), 12), { animate: true });
+      } else if (state.followMap && state.following) {
+        map.panTo([sample.lat, sample.lng], { animate: true });
+      }
+
+      const now = Date.now();
+      if (wasEmpty || center || now - state.lastListRefreshAt > 2000) {
+        state.lastListRefreshAt = now;
+        renderList();
+        refreshMarkers();
+        updateRouteUI();
+        scheduleDriveFetch();
+      } else {
+        updateRouteUI();
+      }
+
+      if (wasEmpty || center || now - state.lastStatusAt > 2500) {
+        state.lastStatusAt = now;
+        const nearest = sortedPeople()[0];
+        const d = nearest ? milesBetween(state.me, nearest) : null;
+        const eta = nearest ? getEta(nearest) : null;
+        const mph = sample.speed != null && sample.speed >= 0
+          ? ` · ${Math.round(sample.speed * 2.23694)} mph`
+          : "";
+        const desktopNote = isLikelyDesktop() ? " (Mac Wi‑Fi estimate)" : "";
+        const quality = sample.accuracy <= GOOD_ACC_M
+          ? "GPS locked"
+          : sample.accuracy <= OK_ACC_M
+            ? "Location OK"
+            : "Approximate location";
+        const nearLabel = nearest
+          ? `Nearest: ${nearest.name} (${eta ? (eta.source === "estimate" ? "~" : "") + fmtMins(eta.minutes) : fmtMiles(d)}).`
+          : "";
+        setStatus(
+          nearLabel
+            ? `${quality}${desktopNote}${mph} · ${fmtAccuracy(sample.accuracy)}. ${nearLabel}`
+            : `${quality}${desktopNote}${mph} · ${fmtAccuracy(sample.accuracy)}.`
+        );
+      }
+    };
+
+    const pickBestSample = () => {
+      if (!state.samples.length) return null;
+      return state.samples.reduce((best, s) =>
+        !best || s.accuracy < best.accuracy ? s : best
+      , null);
+    };
+
+    const onGeoPosition = (pos) => {
+      const acc = pos.coords.accuracy ?? 99999;
+      const sample = {
+        lat: pos.coords.latitude,
+        lng: pos.coords.longitude,
+        accuracy: acc,
+        speed: pos.coords.speed ?? null,
+        heading: pos.coords.heading ?? null,
+        at: Date.now(),
+      };
+      state.samples.push(sample);
+      if (state.samples.length > 20) state.samples.shift();
+
+      const elapsed = Date.now() - state.startedAt;
+      const best = pickBestSample();
+      const desktop = isLikelyDesktop();
+
+      // Warm-up: on desktop, accept the first reading quickly (Wi‑Fi never gets GPS-precise)
+      if (!state.locked) {
+        setStatus(`Getting location… ${fmtAccuracy(acc)}`);
+        const ready =
+          acc <= GOOD_ACC_M ||
+          (desktop && elapsed >= 1500) ||
+          (!desktop && acc <= OK_ACC_M) ||
+          (elapsed >= ACQUIRE_MS && best) ||
+          elapsed >= FORCE_LOCK_MS;
+        if (ready && best) {
+          state.locked = true;
+          commitLocation(best, { center: true });
+        }
+        return;
+      }
+
+      if (acc > state.bestAccuracy * 2.5 && acc > OK_ACC_M) return;
+      if (acc < state.bestAccuracy) state.bestAccuracy = acc;
+      commitLocation(sample);
+    };
+
+    const stopFollowing = () => {
+      if (state.watchId != null) {
+        navigator.geolocation.clearWatch(state.watchId);
+        state.watchId = null;
+      }
+      if (state.forceLockTimer) {
+        clearTimeout(state.forceLockTimer);
+        state.forceLockTimer = null;
+      }
+      state.following = false;
+      btnLocate.textContent = "Follow me";
+      btnLocate.classList.remove("live");
+      btnLocate.setAttribute("aria-pressed", "false");
+      if (state.me) setStatus("Live tracking paused. Last location kept.");
+    };
+
+    const startFollowing = () => {
+      if (!navigator.geolocation) {
+        setStatus("Geolocation not supported in this browser.");
+        return;
+      }
+
+      state.following = true;
+      state.followMap = true;
+      state.locked = false;
+      state.bestAccuracy = Infinity;
+      state.samples = [];
+      state.startedAt = Date.now();
+      btnLocate.textContent = "Stop following";
+      btnLocate.classList.add("live");
+      btnLocate.setAttribute("aria-pressed", "true");
+      setStatus(
+        isLikelyDesktop()
+          ? "Getting Mac location (Wi‑Fi)… allow Location if asked."
+          : "Acquiring GPS… allow Precise Location if asked."
+      );
+
+      if (state.watchId != null) navigator.geolocation.clearWatch(state.watchId);
+      if (state.forceLockTimer) clearTimeout(state.forceLockTimer);
+
+      // Fast path: take whatever macOS/browser returns ASAP
+      navigator.geolocation.getCurrentPosition(
+        onGeoPosition,
+        (err) => {
+          setStatus(`Location blocked or failed: ${err.message}. System Settings → Privacy & Security → Location Services → enable for your browser.`);
+        },
+        { enableHighAccuracy: true, maximumAge: 0, timeout: 10000 }
+      );
+
+      state.watchId = navigator.geolocation.watchPosition(
+        onGeoPosition,
+        (err) => {
+          if (!state.me) {
+            setStatus(`Location failed: ${err.message}. Check System Settings → Privacy → Location Services.`);
+            stopFollowing();
+          }
+        },
+        GEO_OPTS
+      );
+
+      // Hard fallback: if still unlocking after 10s, commit best sample we have
+      state.forceLockTimer = setTimeout(() => {
+        if (!state.following || state.locked) return;
+        const best = pickBestSample();
+        if (best) {
+          state.locked = true;
+          commitLocation(best, { center: true });
+        } else {
+          setStatus("Still waiting on macOS location… check the Location icon in the menu bar, or System Settings → Privacy → Location Services.");
+        }
+      }, FORCE_LOCK_MS);
+    };
+
+    btnLocate.addEventListener("click", () => {
+      if (state.following) stopFollowing();
+      else startFollowing();
+    });
+
+    const syncMapToggleLabels = () => {
+      const expanded = document.body.classList.contains("map-expanded");
+      const label = expanded ? "Shrink map" : "Expand map";
+      [document.getElementById("btnMapToggle"), document.getElementById("btnMapToggleHeader")].forEach((btn) => {
+        if (!btn) return;
+        btn.textContent = label;
+        btn.setAttribute("aria-pressed", expanded ? "true" : "false");
+      });
+    };
+
+    const toggleMapExpanded = () => {
+      document.body.classList.toggle("map-expanded");
+      syncMapToggleLabels();
+      // Leaflet needs a resize after layout change
+      setTimeout(() => {
+        map.invalidateSize();
+        if (state.me) map.panTo([state.me.lat, state.me.lng], { animate: false });
+      }, 80);
+    };
+
+    document.getElementById("btnMapToggle").addEventListener("click", toggleMapExpanded);
+    document.getElementById("btnMapToggleHeader").addEventListener("click", toggleMapExpanded);
+
+    map.on("dragstart", () => {
+      if (state.following) state.followMap = false;
+    });
+
+    map.on("moveend", () => {
+      if (state.following && !state.followMap && Date.now() - state.lastStatusAt > 8000) {
+        state.lastStatusAt = Date.now();
+        setStatus("Map pan paused auto-center. Tap Stop, then Follow me to re-center.");
+      }
+    });
+
+    if (location.protocol !== "file:") {
+      startFollowing();
+    } else {
+      setStatus("Open http://127.0.0.1:8765/pa-tracker-map.html for location to work.");
+    }
+
+    document.getElementById("btnNearest").addEventListener("click", nearestNeighborPath);
+    document.getElementById("btnMaps").addEventListener("click", openGoogleMaps);
+    document.getElementById("btnClearRoute").addEventListener("click", () => {
+      state.routeIds = [];
+      renderList();
+      refreshMarkers();
+      updateRouteUI();
+      setStatus("Route cleared.");
+    });
+
+    ["showSigned", "showPermits", "search", "sortBy"].forEach((id) => {
+      document.getElementById(id).addEventListener("input", () => {
+        renderList();
+        refreshMarkers();
+        updateRouteUI();
+      });
+      document.getElementById(id).addEventListener("change", () => {
+        renderList();
+        refreshMarkers();
+        updateRouteUI();
+      });
+    });
+
+    renderList();
+    refreshMarkers();
+    fitAll();
+    // Don't overwrite GPS acquiring status if already started
+    if (!state.following) {
+      setStatus(`${PEOPLE.length} people loaded. Tap “Follow me” to start live GPS.`);
+    }
+  </script>
+</body>
+</html>
