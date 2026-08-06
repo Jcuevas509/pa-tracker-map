@@ -346,13 +346,33 @@
     }
     .status-row select {
       flex: 1;
-      min-width: 160px;
+      min-width: 140px;
       border: 1px solid var(--border);
       background: var(--bg);
       color: var(--text);
       border-radius: 8px;
       padding: 8px 10px;
       font-size: 0.82rem;
+    }
+    .age-field {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      flex: 0 0 auto;
+    }
+    .age-field label {
+      font-size: 0.75rem;
+      color: var(--muted);
+    }
+    .age-field input {
+      width: 64px;
+      border: 1px solid var(--border);
+      background: var(--bg);
+      color: var(--text);
+      border-radius: 8px;
+      padding: 8px 8px;
+      font-size: 0.82rem;
+      font-variant-numeric: tabular-nums;
     }
     .tag.status-open, .tag.status-new { color: #93a1b0; }
     .tag.status-follow_up, .tag.status-contacted, .tag.status-interested, .tag.status-appointment, .tag.status-callback { color: #3d9cf0; border-color: color-mix(in srgb, #3d9cf0 45%, transparent); }
@@ -726,7 +746,7 @@
     try {
       const oldNotes = JSON.parse(localStorage.getItem("pa-tracker-notes-v1") || "{}");
       Object.entries(oldNotes || {}).forEach(([id, notes]) => {
-        if (!sharedById[id]) sharedById[id] = { notes: notes || "", status: "open", updatedAt: Date.now(), updatedBy: "local" };
+        if (!sharedById[id]) sharedById[id] = { notes: notes || "", status: "open", age: "", updatedAt: Date.now(), updatedBy: "local" };
         else if (!sharedById[id].notes && notes) sharedById[id].notes = notes;
       });
     } catch {}
@@ -744,13 +764,25 @@
     const getEntry = (id) => {
       const key = String(id);
       if (!sharedById[key]) {
-        sharedById[key] = { notes: "", status: "open", updatedAt: null, updatedBy: "" };
+        sharedById[key] = { notes: "", status: "open", age: "", updatedAt: null, updatedBy: "" };
       }
       return sharedById[key];
     };
 
     const getNote = (id) => (getEntry(id).notes || "").trim();
     const getPersonStatus = (id) => normalizeStatus(getEntry(id).status || "open");
+    const getPersonAge = (id) => {
+      const raw = getEntry(id).age;
+      if (raw == null || raw === "") return "";
+      return String(raw).trim();
+    };
+    const normalizeAgeInput = (value) => {
+      const cleaned = String(value ?? "").trim();
+      if (!cleaned) return "";
+      const n = Number(cleaned);
+      if (!Number.isFinite(n) || n < 0 || n > 120) return cleaned.slice(0, 3);
+      return String(Math.round(n));
+    };
 
     const updateSyncPill = () => {
       const pill = document.getElementById("syncPill");
@@ -777,6 +809,7 @@
         dbRef.child(key).set({
           notes: entry.notes || "",
           status: entry.status || "open",
+          age: entry.age || "",
           updatedAt: entry.updatedAt || Date.now(),
           updatedBy: entry.updatedBy || nickname || "anon",
         });
@@ -831,6 +864,7 @@
             sharedById[id] = {
               notes: entry?.notes || "",
               status: entry?.status || "open",
+              age: entry?.age ?? "",
               updatedAt: entry?.updatedAt || null,
               updatedBy: entry?.updatedBy || "",
             };
@@ -838,7 +872,7 @@
           persistLocalShared();
           applyingRemote = false;
           const active = document.activeElement;
-          if (!(active && active.matches && active.matches("textarea[data-note-id], select[data-status-id]"))) {
+          if (!(active && active.matches && active.matches("textarea[data-note-id], select[data-status-id], input[data-age-id]"))) {
             renderList();
             refreshMarkers();
           }
@@ -1002,7 +1036,7 @@
         if (selectedStatusFilters.size > 0 && !selectedStatusFilters.has(getPersonStatus(p.id))) return false;
         if (!q) return true;
         const st = statusLabel(getPersonStatus(p.id)).toLowerCase();
-        const hay = `${p.name} ${p.address} ${p.phone} ${p.email} ${p.jurisdiction} ${p.product} ${st}`.toLowerCase();
+        const hay = `${p.name} ${p.address} ${p.phone} ${p.email} ${p.jurisdiction} ${p.product} ${st} ${getPersonAge(p.id)}`.toLowerCase();
         return hay.includes(q);
       });
     };
@@ -1088,11 +1122,12 @@
       const activeEl = document.activeElement;
       const editingNote = activeEl?.matches?.("textarea[data-note-id]") ? activeEl : null;
       const editingStatus = activeEl?.matches?.("select[data-status-id]") ? activeEl : null;
+      const editingAge = activeEl?.matches?.("input[data-age-id]") ? activeEl : null;
       if (editingNote) {
         setEntryFields(editingNote.getAttribute("data-note-id"), { notes: editingNote.value });
         return;
       }
-      if (editingStatus) return;
+      if (editingStatus || editingAge) return;
 
       const scrollTop = list.scrollTop;
       const people = sortedPeople();
@@ -1106,6 +1141,7 @@
         const entry = getEntry(p.id);
         const note = (entry.notes || "").trim();
         const st = getPersonStatus(p.id);
+        const age = getPersonAge(p.id);
         const preview = !active && note
           ? `<div class="note-preview">${notePreviewHtml(note)}</div>`
           : "";
@@ -1121,6 +1157,7 @@
             <div class="addr">${p.address}${p.approx ? " (approx pin)" : ""}</div>
             <div class="tags">
               <span class="tag ${p.section}">${p.section === "permits" ? "Permits" : "Signed"}</span>
+              ${age ? `<span class="tag">Age ${escapeHtml(age)}</span>` : ""}
               ${p.product ? `<span class="tag">${p.product}</span>` : ""}
               ${p.scheduleDate && p.scheduleDate !== "-" ? `<span class="tag warn">Sched ${p.scheduleDate}</span>` : ""}
               ${note ? `<span class="tag warn">Note</span>` : ""}
@@ -1128,6 +1165,10 @@
             </div>
             <div class="status-row">
               <select id="status-${p.id}" data-status-id="${p.id}" aria-label="Status for ${escapeHtml(p.name)}">${statusOptions}</select>
+              <div class="age-field">
+                <label for="age-${p.id}">Age</label>
+                <input id="age-${p.id}" data-age-id="${p.id}" type="number" inputmode="numeric" min="0" max="120" placeholder="—" aria-label="Age for ${escapeHtml(p.name)}" />
+              </div>
             </div>
             ${preview}
             <div class="actions">
@@ -1153,16 +1194,14 @@
           }
           const mapsLink = e.target.closest("a[data-maps-link]");
           if (mapsLink) {
-            // Let the browser honor target="_blank". Do NOT preventDefault +
-            // window.open(..., "noopener") — Chrome often keeps the same tab.
             e.stopPropagation();
             return;
           }
-          if (e.target.closest("a") || e.target.closest("textarea") || e.target.closest("select") || e.target.closest(".note-box")) return;
+          if (e.target.closest("a") || e.target.closest("textarea") || e.target.closest("select") || e.target.closest("input") || e.target.closest(".note-box")) return;
           focusPerson(id);
         });
         card.addEventListener("keydown", (e) => {
-          if (e.target.closest("textarea") || e.target.closest("select")) return;
+          if (e.target.closest("textarea") || e.target.closest("select") || e.target.closest("input")) return;
           if (e.key === "Enter" || e.key === " ") {
             e.preventDefault();
             focusPerson(id);
@@ -1180,6 +1219,24 @@
           timer = setTimeout(() => setEntryFields(id, { notes: ta.value }), 300);
         });
         ta.addEventListener("blur", () => setEntryFields(id, { notes: ta.value }));
+      });
+
+      list.querySelectorAll("input[data-age-id]").forEach((inp) => {
+        const id = inp.getAttribute("data-age-id");
+        inp.value = getPersonAge(id);
+        let timer = null;
+        inp.addEventListener("click", (e) => e.stopPropagation());
+        inp.addEventListener("input", () => {
+          clearTimeout(timer);
+          timer = setTimeout(() => setEntryFields(id, { age: normalizeAgeInput(inp.value) }), 300);
+        });
+        inp.addEventListener("blur", () => {
+          const age = normalizeAgeInput(inp.value);
+          inp.value = age;
+          setEntryFields(id, { age });
+          renderList();
+          refreshMarkers();
+        });
       });
 
       list.querySelectorAll("select[data-status-id]").forEach((sel) => {
