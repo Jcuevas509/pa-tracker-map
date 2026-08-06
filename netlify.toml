@@ -1,0 +1,10 @@
+[build]
+  publish = "."
+  # Static site — no build step
+  command = "exit 0"
+
+[[headers]]
+  for = "/*"
+  [headers.values]
+    # Allow geolocation on this origin (HTTPS is provided by Netlify)
+    Permissions-Policy = "geolocation=(self)"
