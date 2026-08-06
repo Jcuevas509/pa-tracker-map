@@ -237,42 +237,85 @@
     .route-stops { font-size: 0.8rem; color: var(--muted); max-height: 72px; overflow: auto; }
     #btnMapToggleHeader { display: none; }
     @media (max-width: 860px) {
+      html, body {
+        height: auto;
+        min-height: 100dvh;
+        overflow-x: hidden;
+        overflow-y: auto;
+        -webkit-overflow-scrolling: touch;
+      }
       body {
         grid-template-columns: 1fr;
-        grid-template-rows: auto minmax(160px, 28vh) minmax(0, 1fr);
+        grid-template-rows: auto auto auto;
+        height: auto;
       }
       header {
+        position: sticky;
+        top: 0;
+        z-index: 1200;
         padding: 8px 10px;
         gap: 6px;
       }
       header h1 { font-size: 0.95rem; }
       .btn { padding: 7px 10px; font-size: 0.8rem; }
-      .map-wrap { order: 0; min-height: 0; }
+      .map-wrap {
+        order: 0;
+        height: 22vh;
+        min-height: 140px;
+        max-height: 220px;
+      }
       .map-toggle, #btnMapToggleHeader { display: inline-flex; align-items: center; }
       aside {
         order: 1;
         border-right: 0;
         border-top: 1px solid var(--border);
-        min-height: 55vh;
+        min-height: 0;
         max-height: none;
+        /* Grow with cards so the whole page scrolls (not a tiny nested list) */
+        height: auto;
+        overflow: visible;
       }
-      aside .toolbar { padding: 8px 10px; gap: 6px; }
+      aside .toolbar {
+        position: sticky;
+        top: 52px;
+        z-index: 1100;
+        padding: 8px 10px;
+        gap: 6px;
+        background: var(--panel);
+      }
       aside .list {
-        -webkit-overflow-scrolling: touch;
-        overscroll-behavior: contain;
-        padding-bottom: 24px;
+        overflow: visible;
+        flex: none;
+        padding: 8px 8px 40px;
       }
-      .card { padding: 12px 12px; margin-bottom: 10px; }
+      .card {
+        padding: 10px;
+        margin-bottom: 8px;
+      }
+      .card .actions { gap: 5px; }
+      .card .actions a, .card .actions button {
+        padding: 6px 8px;
+        font-size: 0.72rem;
+      }
+      .status-row select {
+        padding: 7px 8px;
+        font-size: 0.8rem;
+      }
       .legend { display: none; }
 
+      /* Full-screen map mode still locks the viewport */
       body.map-expanded {
-        grid-template-rows: auto minmax(0, 1fr) 0;
+        height: 100dvh;
+        overflow: hidden;
+        grid-template-rows: auto minmax(0, 1fr);
       }
       body.map-expanded aside {
         display: none;
       }
       body.map-expanded .map-wrap {
+        height: auto;
         min-height: 0;
+        max-height: none;
       }
       body.map-expanded .map-toggle {
         bottom: 18px;
