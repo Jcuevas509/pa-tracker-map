@@ -309,12 +309,20 @@
       padding: 7px 10px;
       font-size: 0.82rem;
     }
-    .tag.status-open { color: #93a1b0; }
+    .tag.status-new, .tag.status-open { color: #93a1b0; }
     .tag.status-contacted { color: #3d9cf0; border-color: color-mix(in srgb, #3d9cf0 45%, transparent); }
-    .tag.status-scheduled { color: #f0b429; border-color: color-mix(in srgb, #f0b429 45%, transparent); }
-    .tag.status-visited { color: #a78bfa; border-color: color-mix(in srgb, #a78bfa 45%, transparent); }
-    .tag.status-done { color: #3ecf8e; border-color: color-mix(in srgb, #3ecf8e 45%, transparent); }
+    .tag.status-no_answer { color: #7dd3fc; border-color: color-mix(in srgb, #7dd3fc 45%, transparent); }
+    .tag.status-has_solar { color: #f0b429; border-color: color-mix(in srgb, #f0b429 45%, transparent); }
+    .tag.status-with_competitor { color: #fb923c; border-color: color-mix(in srgb, #fb923c 45%, transparent); }
+    .tag.status-interested { color: #34d399; border-color: color-mix(in srgb, #34d399 45%, transparent); }
+    .tag.status-appointment, .tag.status-scheduled { color: #a78bfa; border-color: color-mix(in srgb, #a78bfa 45%, transparent); }
+    .tag.status-visited { color: #c4b5fd; border-color: color-mix(in srgb, #c4b5fd 45%, transparent); }
+    .tag.status-not_interested { color: #94a3b8; border-color: color-mix(in srgb, #94a3b8 45%, transparent); }
+    .tag.status-callback { color: #fbbf24; border-color: color-mix(in srgb, #fbbf24 45%, transparent); }
+    .tag.status-switched, .tag.status-done { color: #3ecf8e; border-color: color-mix(in srgb, #3ecf8e 45%, transparent); }
+    .tag.status-lost { color: #f87171; border-color: color-mix(in srgb, #f87171 45%, transparent); }
     .tag.status-issue { color: #ef5f67; border-color: color-mix(in srgb, #ef5f67 45%, transparent); }
+    .toolbar select.btn { max-width: 48%; }
     .modal-backdrop {
       display: none;
       position: fixed;
@@ -421,7 +429,9 @@
     <div class="toolbar">
       <input type="search" id="search" placeholder="Search name, city, phone…" aria-label="Search people" />
       <div class="row">
-        <span class="meta" id="summary"></span>
+        <select id="filterStatus" class="btn" aria-label="Filter by status">
+          <option value="all">All statuses</option>
+        </select>
         <select id="sortBy" class="btn" aria-label="Sort list" style="margin-left:auto">
           <option value="name">Sort: Name</option>
           <option value="distance">Sort: Time / Distance</option>
@@ -429,7 +439,10 @@
           <option value="section">Sort: Section</option>
         </select>
       </div>
-      <div class="meta" id="shareTip">Tap a person for status + notes. Set up sharing so the whole team sees the same data.</div>
+      <div class="row">
+        <span class="meta" id="summary"></span>
+      </div>
+      <div class="meta" id="shareTip">Switch leads: set status (has solar, not interested, etc.) + notes. Filter by status below.</div>
     </div>
     <div class="list" id="list" role="list"></div>
     <div class="route-bar" id="routeBar">
@@ -566,14 +579,43 @@
     const setStatus = (_msg) => {};
 
     const STATUSES = [
-      { id: "open", label: "Open" },
+      { id: "new", label: "New" },
       { id: "contacted", label: "Contacted" },
-      { id: "scheduled", label: "Scheduled" },
+      { id: "no_answer", label: "No answer / VM" },
+      { id: "has_solar", label: "Has solar" },
+      { id: "with_competitor", label: "With competitor" },
+      { id: "interested", label: "Interested" },
+      { id: "appointment", label: "Appointment set" },
       { id: "visited", label: "Visited" },
-      { id: "done", label: "Done" },
+      { id: "callback", label: "Callback later" },
+      { id: "not_interested", label: "Not interested" },
+      { id: "switched", label: "Switched / Won" },
+      { id: "lost", label: "Lost" },
       { id: "issue", label: "Issue" },
     ];
-    const statusLabel = (id) => STATUSES.find((s) => s.id === id)?.label || "Open";
+    // Map older status ids so existing Firebase data still displays
+    const STATUS_ALIASES = {
+      open: "new",
+      scheduled: "appointment",
+      done: "switched",
+    };
+    const normalizeStatus = (id) => STATUS_ALIASES[id] || id || "new";
+    const statusLabel = (id) => {
+      const nid = normalizeStatus(id);
+      return STATUSES.find((s) => s.id === nid)?.label || "New";
+    };
+
+    // Populate status filter dropdown
+    (() => {
+      const sel = document.getElementById("filterStatus");
+      if (!sel) return;
+      STATUSES.forEach((s) => {
+        const opt = document.createElement("option");
+        opt.value = s.id;
+        opt.textContent = s.label;
+        sel.appendChild(opt);
+      });
+    })();
 
     const LOCAL_SHARED_KEY = "pa-tracker-shared-v1";
     const FIREBASE_CFG_KEY = "pa-tracker-firebase-config";
@@ -587,7 +629,7 @@
     try {
       const oldNotes = JSON.parse(localStorage.getItem("pa-tracker-notes-v1") || "{}");
       Object.entries(oldNotes || {}).forEach(([id, notes]) => {
-        if (!sharedById[id]) sharedById[id] = { notes: notes || "", status: "open", updatedAt: Date.now(), updatedBy: "local" };
+        if (!sharedById[id]) sharedById[id] = { notes: notes || "", status: "new", updatedAt: Date.now(), updatedBy: "local" };
         else if (!sharedById[id].notes && notes) sharedById[id].notes = notes;
       });
     } catch {}
@@ -605,13 +647,13 @@
     const getEntry = (id) => {
       const key = String(id);
       if (!sharedById[key]) {
-        sharedById[key] = { notes: "", status: "open", updatedAt: null, updatedBy: "" };
+        sharedById[key] = { notes: "", status: "new", updatedAt: null, updatedBy: "" };
       }
       return sharedById[key];
     };
 
     const getNote = (id) => (getEntry(id).notes || "").trim();
-    const getPersonStatus = (id) => getEntry(id).status || "open";
+    const getPersonStatus = (id) => normalizeStatus(getEntry(id).status || "new");
 
     const updateSyncPill = () => {
       const pill = document.getElementById("syncPill");
@@ -637,7 +679,7 @@
       if (syncEnabled && dbRef && !applyingRemote) {
         dbRef.child(key).set({
           notes: entry.notes || "",
-          status: entry.status || "open",
+          status: entry.status || "new",
           updatedAt: entry.updatedAt || Date.now(),
           updatedBy: entry.updatedBy || nickname || "anon",
         });
@@ -691,7 +733,7 @@
           Object.entries(val).forEach(([id, entry]) => {
             sharedById[id] = {
               notes: entry?.notes || "",
-              status: entry?.status || "open",
+              status: entry?.status || "new",
               updatedAt: entry?.updatedAt || null,
               updatedBy: entry?.updatedBy || "",
             };
@@ -856,12 +898,15 @@
     const visiblePeople = () => {
       const showSigned = document.getElementById("showSigned").checked;
       const showPermits = document.getElementById("showPermits").checked;
+      const statusFilter = document.getElementById("filterStatus")?.value || "all";
       const q = document.getElementById("search").value.trim().toLowerCase();
       return PEOPLE.filter((p) => {
         if (p.section === "signed" && !showSigned) return false;
         if (p.section === "permits" && !showPermits) return false;
+        if (statusFilter !== "all" && getPersonStatus(p.id) !== statusFilter) return false;
         if (!q) return true;
-        const hay = `${p.name} ${p.address} ${p.phone} ${p.email} ${p.jurisdiction} ${p.product}`.toLowerCase();
+        const st = statusLabel(getPersonStatus(p.id)).toLowerCase();
+        const hay = `${p.name} ${p.address} ${p.phone} ${p.email} ${p.jurisdiction} ${p.product} ${st}`.toLowerCase();
         return hay.includes(q);
       });
     };
@@ -964,7 +1009,7 @@
         const links = mapsLinks(p);
         const entry = getEntry(p.id);
         const note = (entry.notes || "").trim();
-        const st = entry.status || "open";
+        const st = getPersonStatus(p.id);
         const preview = !active && note
           ? `<div class="note-preview">${notePreviewHtml(note)}</div>`
           : "";
@@ -1472,7 +1517,7 @@
       setStatus("Route cleared.");
     });
 
-    ["showSigned", "showPermits", "search", "sortBy"].forEach((id) => {
+    ["showSigned", "showPermits", "search", "sortBy", "filterStatus"].forEach((id) => {
       document.getElementById(id).addEventListener("input", () => {
         renderList();
         refreshMarkers();
