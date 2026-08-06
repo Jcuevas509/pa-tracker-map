@@ -419,7 +419,7 @@
     <label class="chip on-permits"><input type="checkbox" id="showPermits" checked /> Permits</label>
     <div class="spacer"></div>
     <span class="sync-pill off" id="syncPill" title="Shared sync status">Local only</span>
-    <button class="btn" id="btnShareSetup" type="button">Share setup</button>
+    <button class="btn" id="btnShareSetup" type="button">Your name</button>
     <button class="btn" id="btnMapToggleHeader" type="button" aria-pressed="false">Expand map</button>
     <button class="btn" id="btnLocate" type="button" aria-pressed="false">Follow me</button>
     <button class="btn" id="btnNearest" type="button" disabled>Build nearest path</button>
@@ -459,22 +459,17 @@
 
   <div class="modal-backdrop" id="shareModal" role="dialog" aria-modal="true" aria-labelledby="shareModalTitle">
     <div class="modal">
-      <h2 id="shareModalTitle">Share notes &amp; status</h2>
-      <p>GitHub Pages can’t store shared data by itself. A free Firebase Realtime Database keeps notes/status in sync for everyone with the link.</p>
-      <ol>
-        <li>Open <a href="https://console.firebase.google.com/" target="_blank" rel="noopener">Firebase Console</a> → Create project</li>
-        <li>Add a <strong>Web</strong> app → copy the <code>firebaseConfig</code> object</li>
-        <li>Build → <strong>Realtime Database</strong> → Create → start in <strong>test mode</strong> (or allow read/write)</li>
-        <li>Paste the config JSON below (the object with apiKey, databaseURL, …)</li>
-      </ol>
-      <label for="nickInput">Your name (shown on edits)</label>
+      <h2 id="shareModalTitle">Your name</h2>
+      <p id="shareModalBlurb">Shown on status/note edits so the team knows who updated what. Notes and status already sync for everyone with this link.</p>
+      <label for="nickInput">Display name</label>
       <input id="nickInput" type="text" placeholder="e.g. Jose" maxlength="40" />
-      <label for="firebaseConfigInput">Firebase config</label>
-      <textarea id="firebaseConfigInput" placeholder='{ "apiKey": "...", "authDomain": "...", "databaseURL": "...", "projectId": "..." }'></textarea>
+      <div id="firebaseAdvanced" hidden>
+        <label for="firebaseConfigInput">Firebase config (advanced)</label>
+        <textarea id="firebaseConfigInput" placeholder='{ "apiKey": "...", "databaseURL": "..." }'></textarea>
+      </div>
       <div class="modal-actions">
         <button class="btn" type="button" id="btnShareClose">Cancel</button>
-        <button class="btn danger" type="button" id="btnShareClear">Clear sync</button>
-        <button class="btn primary" type="button" id="btnShareSave">Save &amp; sync</button>
+        <button class="btn primary" type="button" id="btnShareSave">Save</button>
       </div>
     </div>
   </div>
@@ -665,12 +660,12 @@
         pill.textContent = "Live sync";
         pill.classList.add("on");
         pill.classList.remove("off");
-        if (tip) tip.textContent = "Status + notes sync live for everyone with this link.";
+        if (tip) tip.textContent = "Status + notes sync live for everyone with this link. Set Your name so edits are labeled.";
       } else {
         pill.textContent = "Local only";
         pill.classList.add("off");
         pill.classList.remove("on");
-        if (tip) tip.textContent = "Tap Share setup so the team can share status + notes.";
+        if (tip) tip.textContent = "Sync is offline — check connection, then refresh.";
       }
     };
 
@@ -1419,9 +1414,10 @@
     const shareModal = document.getElementById("shareModal");
     const openShareModal = () => {
       document.getElementById("nickInput").value = nickname || "";
-      const cfg = loadFirebaseConfig();
-      document.getElementById("firebaseConfigInput").value = cfg ? JSON.stringify(cfg, null, 2) : "";
+      const adv = document.getElementById("firebaseAdvanced");
+      if (adv) adv.hidden = !!EMBEDDED_FIREBASE_CONFIG;
       shareModal.classList.add("show");
+      setTimeout(() => document.getElementById("nickInput")?.focus(), 50);
     };
     const closeShareModal = () => shareModal.classList.remove("show");
 
@@ -1431,39 +1427,29 @@
       if (e.target === shareModal) closeShareModal();
     });
 
-    document.getElementById("btnShareClear").addEventListener("click", () => {
-      stopFirebaseSync();
-      closeShareModal();
-      renderList();
-    });
-
     document.getElementById("btnShareSave").addEventListener("click", () => {
       nickname = (document.getElementById("nickInput").value || "").trim();
       localStorage.setItem(NICK_KEY, nickname);
-      const raw = document.getElementById("firebaseConfigInput").value.trim();
-      if (!raw) {
-        alert("Paste your Firebase config JSON first.");
-        return;
+      // Only used if embedded config is missing
+      if (!EMBEDDED_FIREBASE_CONFIG) {
+        const raw = (document.getElementById("firebaseConfigInput")?.value || "").trim();
+        if (raw) {
+          try {
+            const cleaned = raw
+              .replace(/^\s*const\s+\w+\s*=\s*/i, "")
+              .replace(/^\s*firebaseConfig\s*=\s*/i, "")
+              .replace(/;\s*$/, "");
+            const config = JSON.parse(cleaned);
+            localStorage.setItem(FIREBASE_CFG_KEY, JSON.stringify(config));
+            startFirebaseSync(config);
+          } catch {
+            alert("Could not parse Firebase config.");
+            return;
+          }
+        }
       }
-      let config;
-      try {
-        // Allow pasting `const firebaseConfig = {...};` snippets
-        const cleaned = raw
-          .replace(/^\s*const\s+\w+\s*=\s*/i, "")
-          .replace(/^\s*firebaseConfig\s*=\s*/i, "")
-          .replace(/;\s*$/, "");
-        config = JSON.parse(cleaned);
-      } catch (err) {
-        alert("Could not parse config JSON. Paste only the { ... } object.");
-        return;
-      }
-      localStorage.setItem(FIREBASE_CFG_KEY, JSON.stringify(config));
-      if (startFirebaseSync(config)) {
-        // Upload any local entries once so teammates get them
-        Object.keys(sharedById).forEach((id) => pushEntry(id));
-        closeShareModal();
-        renderList();
-      }
+      closeShareModal();
+      renderList();
     });
 
     // Auto-connect: embedded config (for all visitors) OR this browser's saved config
@@ -1471,6 +1457,11 @@
       || loadFirebaseConfig();
     if (existingCfg) startFirebaseSync(existingCfg);
     updateSyncPill();
+
+    // Prompt once for a display name if sync is on and name is empty
+    if (syncEnabled && !nickname) {
+      setTimeout(openShareModal, 400);
+    }
 
     const syncMapToggleLabels = () => {
       const expanded = document.body.classList.contains("map-expanded");
