@@ -1297,7 +1297,7 @@
         if (selectedStatusFilters.size > 0 && !selectedStatusFilters.has(getPersonStatus(p.id))) return false;
         if (!q) return true;
         const st = statusLabel(getPersonStatus(p.id)).toLowerCase();
-        const hay = `${p.name} ${p.address} ${p.phone} ${p.email} ${p.jurisdiction} ${p.product} ${st} ${getPersonAge(p.id)}`.toLowerCase();
+        const hay = `${p.name} ${p.address} ${p.phone} ${p.email} ${p.jurisdiction} ${p.product} ${p.permitSubmitted} ${p.permitExpected} ${p.permitApproval} ${p.scheduleDate} ${st} ${getPersonAge(p.id)}`.toLowerCase();
         return hay.includes(q);
       });
     };
